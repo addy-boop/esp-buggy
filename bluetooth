@@ -1,0 +1,42 @@
+#include "mbed.h"
+
+// Blinking rate in milliseconds
+Serial hm10(D3,D2);
+Serial pc(USBTX, USBRX);
+DigitalOut LED(PA_5);
+char s;
+char w;
+void serial_config();
+
+int main() {
+
+pc.baud(9600);
+hm10.baud(9600);//Set up baud rate for serial communication
+
+while (!hm10.writeable()) { } //wait until the HM10 is ready
+
+while(1) {
+if (hm10.readable()) {
+s = hm10.getc();
+pc.putc(s);
+
+if(s == '1'){
+LED = 1;
+}
+
+if(s == '0'){
+LED = 0;
+}
+
+}
+serial_config();
+}
+
+void serial_config() {
+if (pc.readable()){
+w = pc.getc();
+hm10.putc(w);
+}
+
+}
+}
