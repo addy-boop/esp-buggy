@@ -1,6 +1,6 @@
 #include "mbed.h"
 
-// Blinking rate in milliseconds
+
 Serial hm10(D3,D2);
 Serial pc(USBTX, USBRX);
 DigitalOut LED(PA_5);
