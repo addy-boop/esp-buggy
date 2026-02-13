@@ -1,0 +1,89 @@
+#include "mbed.h"
+#include "C12832.h"
+//#include "QEI.h"
+
+//global variables
+
+C12832 lcd(D11,D13,D12,D7,D10);
+
+PwmOut pwm(PA_15);      //sets pwm pin 
+InterruptIn middle(D4);
+DigitalOut enable(PA_13);
+
+typedef enum{startUp, pwmOn}programState;
+programState state;
+programState lastState;
+
+//QEI rightWheel(PA_13, PA_14, PC_14,1);
+
+
+//Functions Start
+
+void nextState(){
+    switch(state){
+        case(startUp):
+            state = pwmOn;
+        break;
+        case(pwmOn):
+            state = startUp;
+        break;
+    }
+}
+
+//Encoder intterupt functio, uses a timed interrupt to check at set frequency --> interrupt calls another 
+
+/*void encoderValue(){
+    int pulscounts;
+    
+
+}*/
+
+
+
+// main() runs in its own thread in the OS
+int main()
+{
+
+    enable = 0;
+    middle.rise(&nextState);
+    state = startUp;
+    lastState = pwmOn;
+
+    while (true) {
+         
+        
+
+    
+        //main state code insert here
+
+
+        if (state != lastState){
+
+            switch (state) {
+            case startUp:
+                enable = 0;
+                pwm.write(0.0f);
+                lcd.cls();
+                lcd.locate(0,0);
+                lcd.printf("Start Screen");
+                lastState = startUp;
+                break;
+            case pwmOn:
+                enable = 1;
+                lcd.cls();
+                lcd.locate(0,0);
+                lcd.printf("Pwm Mode On Testing ...");
+                pwm.period(0.002f);
+                pwm.write(0.5f);
+
+
+
+                lastState = pwmOn;
+                break;
+            }
+        }
+
+
+    }
+}
+
