@@ -6,9 +6,12 @@
 
 C12832 lcd(D11,D13,D12,D7,D10);
 
-PwmOut pwm(PA_15);      //sets pwm pin 
+PwmOut pwmRight(PA_15);      //sets pwm pin 
+PwmOut pwmLeft(PB_7);       //sets left wheel control through pwm
 InterruptIn middle(D4);
 DigitalOut enable(PA_13);
+DigitalOut directionLeft(PA_14);
+DigitalOut directionRight(PC_14);
 
 typedef enum{startUp, pwmOn}programState;
 programState state;
@@ -62,19 +65,24 @@ int main()
             switch (state) {
             case startUp:
                 enable = 0;
-                pwm.write(0.0f);
+                pwmRight.write(0.0f);
+                pwmLeft.write(0.0f);
                 lcd.cls();
                 lcd.locate(0,0);
                 lcd.printf("Start Screen");
                 lastState = startUp;
                 break;
             case pwmOn:
+                directionLeft = 1;
+                directionRight = 0;
                 enable = 1;
                 lcd.cls();
                 lcd.locate(0,0);
                 lcd.printf("Pwm Mode On Testing ...");
-                pwm.period(0.002f);
-                pwm.write(0.5f);
+                pwmRight.period(0.002f);
+                pwmRight.write(0.8f);
+                pwmLeft.period(0.002f);
+                pwmLeft.write(0.8f);
 
 
 
@@ -86,4 +94,5 @@ int main()
 
     }
 }
+
 
