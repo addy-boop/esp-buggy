@@ -1,0 +1,134 @@
+#include "mbed.h"
+#include "C12832.h"
+//#include "QEI.h"
+
+//classes
+
+class encoderCount{
+
+private:
+    InterruptIn countInterrupt;
+    volatile int count;
+    volatile int overallCount;
+    volatile float rotationTime;
+    Timer countTimer;
+
+public:
+    encoderCount(PinName pin):
+    countInterrupt(pin), count(0){
+        countInterrupt.rise(callback(this, &encoderCount::increment));
+    }
+
+    void increment(){
+/*        if(count == 0){
+            countTimer.start();
+        };
+        if(count == 256){
+            countTimer.stop();
+            rotationTime = (countTimer.read()/256);
+        };*/
+        count++;
+    }
+
+    int read(){
+        return rotationTime;
+    }
+
+
+};
+
+//global variables
+
+C12832 lcd(D11,D13,D12,D7,D10);
+
+PwmOut pwmRight(PA_15);      //sets pwm pin 
+PwmOut pwmLeft(PB_7);       //sets left wheel control through pwm
+InterruptIn middle(D4);
+DigitalOut enable(PA_13);
+DigitalOut directionLeft(PA_14);
+DigitalOut directionRight(PC_14);
+int leftCounter = 0;
+int rightCounter = 0;
+
+typedef enum{startUp, pwmOn}programState;
+programState state;
+programState lastState;
+
+
+
+
+//Functions Start
+
+void nextState(){
+    switch(state){
+        case(startUp):
+            state = pwmOn;
+        break;
+        case(pwmOn):
+            state = startUp;
+        break;
+    }
+}
+
+//Encoder intterupt function, uses a timed interrupt to check at set frequency --> interrupt calls another 
+
+
+
+// main() runs in its own thread in the OS
+int main()
+{
+
+    encoderCount leftEncoder(PH_0);
+    encoderCount rightEncoder(PH_1);
+
+    enable = 0;
+    middle.rise(&nextState);
+    state = startUp;
+    lastState = pwmOn;
+
+    while (true) {
+         
+        
+
+    
+        //main state code insert here
+
+
+        if (state != lastState){
+
+            switch (state) {
+            case startUp:
+                enable = 0;
+                pwmRight.write(0.0f);
+                pwmLeft.write(0.0f);
+                lcd.cls();
+                lcd.locate(0,0);
+                lcd.printf("Start Screen");
+                lastState = startUp;
+                break;
+            case pwmOn:
+                directionLeft = 1;
+                directionRight = 0;
+                
+                lcd.cls();
+                lcd.locate(0,0);
+                lcd.printf("Left Encoder Value %d", leftEncoder.read());
+                lcd.locate(16,0);
+                lcd.printf("Right Encoder Value %d", rightEncoder.read());
+                pwmRight.period(0.002f);
+                pwmRight.write(0.8f);
+                pwmLeft.period(0.002f);
+                pwmLeft.write(0.8f);
+                enable = 1;
+
+
+
+                lastState = pwmOn;
+                break;
+            }
+        }
+
+
+    }
+}
+
