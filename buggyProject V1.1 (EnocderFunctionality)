@@ -1,8 +1,5 @@
 #include "mbed.h"
 #include "C12832.h"
-//#include "QEI.h"
-
-//classes
 
 class encoderCount{
 
@@ -31,11 +28,12 @@ public:
     }
 
     int read(){
-        return rotationTime;
+        return count;
     }
 
 
 };
+
 
 //global variables
 
@@ -53,9 +51,6 @@ int rightCounter = 0;
 typedef enum{startUp, pwmOn}programState;
 programState state;
 programState lastState;
-
-
-
 
 //Functions Start
 
@@ -78,7 +73,7 @@ void nextState(){
 int main()
 {
 
-    encoderCount leftEncoder(PH_0);
+    encoderCount leftEncoder(PB_9);
     encoderCount rightEncoder(PH_1);
 
     enable = 0;
@@ -107,14 +102,14 @@ int main()
                 lastState = startUp;
                 break;
             case pwmOn:
-                directionLeft = 1;
-                directionRight = 0;
+                directionLeft = 1;          //this is backwards 
+                directionRight = 0;         //this is forwards
                 
                 lcd.cls();
                 lcd.locate(0,0);
                 lcd.printf("Left Encoder Value %d", leftEncoder.read());
                 lcd.locate(16,0);
-                lcd.printf("Right Encoder Value %d", rightEncoder.read());
+                //lcd.printf("Right Encoder Value %d", rightEncoder.read());
                 pwmRight.period(0.002f);
                 pwmRight.write(0.8f);
                 pwmLeft.period(0.002f);
