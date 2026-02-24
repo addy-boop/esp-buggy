@@ -62,6 +62,10 @@ DigitalOut directionLeft(PB_1);
 DigitalOut directionRight(PA_14);
 int leftCounter = 0;
 int rightCounter = 0;
+int target_counts = 4786;
+int turn_90_counts = 1707;
+encoderCount leftEncoder(PB_9);
+encoderCount rightEncoder(PB_8);
 
 typedef enum{startUp, pwmOn, encoderRead, driveInSquare}programState;
 programState state;
@@ -108,9 +112,6 @@ void stop_motors() {
     enable = 0;
 }
 
-int target_counts = 4786;
-int turn_90_counts = 1707;
-
 void move_forward() {
     // Reset counts before moving
     leftEncoder.countreset();
@@ -121,7 +122,7 @@ void move_forward() {
 
     enable = 1;
 
-    while (leftEncoder.read() < target_counts) {
+    while (leftEncoder.countRead() < target_counts) {
         pwmLeft.write(0.8f);
         pwmRight.write(0.8f);
     }
@@ -142,7 +143,7 @@ void turn_right_90() {
 
     enable = 1;
 
-    while (leftEncoder.read() < turn_90_counts) {
+    while (leftEncoder.countRead() < turn_90_counts) {
         pwmLeft.write(0.8f);
         pwmRight.write(0.0f);
     }
@@ -161,7 +162,7 @@ void turn_left_90() {
     pwmRight.period(0.002f);
     enable = 1;
 
-    while (rightEncoder.read() < turn_90_counts) {
+    while (rightEncoder.countRead() < turn_90_counts) {
       pwmLeft.write(0.0f);
       pwmRight.write(0.8f);
      }
@@ -183,8 +184,8 @@ int main()
 
     up.rise(&nextState);      //disables interrupt
 
-    encoderCount leftEncoder(PB_9);
-    encoderCount rightEncoder(PB_8);
+    //encoderCount leftEncoder(PB_9);
+    //encoderCount rightEncoder(PB_8);
 
     DigitalOut leftPol(PB_2);
     DigitalOut rightPol(PA_13);
@@ -244,25 +245,24 @@ int main()
                     lcd.cls();
                     lcd.locate(0,0);
                     lcd.printf("Driving in Square");
-                }
 
-                for(int i = 0; i < 4; i++){
+                    for(int i = 0; i < 4; i++){
                        move_forward();
                        turn_right_90();
                     }
 
                     turn_right_90();
 
-                for(int i = 0; i < 4; i++){
+                    for(int i = 0; i < 4; i++){
                        move_forward();
                        turn_left_90();
                     }
+
+                }
                 
             lastState = driveInSquare;
             break;
-
-
-
+            
             }
         }
 
