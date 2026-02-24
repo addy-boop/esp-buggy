@@ -1,0 +1,187 @@
+#include "mbed.h"
+#include "C12832.h"
+
+class encoderCount{
+
+private:
+    InterruptIn countInterrupt;
+    volatile int count;
+    volatile int overallCount;
+    volatile float rotationTime;
+    Timer countTimer;
+
+public:
+    encoderCount(PinName pin):
+    countInterrupt(pin), count(0), rotationTime(0.0f), overallCount(0){
+        countInterrupt.rise(callback(this, &encoderCount::increment));
+    }
+
+    void increment(){
+        count++;
+        if(count == 1){
+            countTimer.reset();
+            countTimer.start();
+        };
+        if(count == 256){
+            countTimer.stop();
+            rotationTime = (countTimer.read()/256);
+            count = 0;
+            overallCount++;
+        };
+    }
+
+    int countRead(){
+        return count;
+    }
+
+    float countRotationTime(){
+        return rotationTime;
+    }
+
+    int totalRotations(){
+        return overallCount;
+    }
+
+
+};
+
+
+//global variables
+
+C12832 lcd(D11,D13,D12,D7,D10);
+
+PwmOut pwmRight(PA_15);      //sets pwm pin 
+PwmOut pwmLeft(PB_7);       //sets left wheel control through pwm
+InterruptIn up(A2);
+DigitalOut enable(PD_2);
+DigitalOut directionLeft(PB_1);
+DigitalOut directionRight(PA_14);
+int leftCounter = 0;
+int rightCounter = 0;
+
+typedef enum{startUp, pwmOn, encoderRead, driveInSquare}programState;
+programState state;
+programState lastState;
+
+Timeout debounceTimer;
+const float debounceTime = 0.10f;       //100ms
+
+//Functions Start
+
+//forward declaration of enableStateSwitch needed as call each other
+
+void enableStateSwitch();
+
+//next state ISR
+
+void nextState(){
+
+    //interrupt disable for debounce
+    up.rise(NULL);
+
+    switch(state){
+        case(startUp):
+            state = pwmOn;
+        break;
+        case(pwmOn):
+            state = encoderRead;
+        break;
+        case(encoderRead):
+            state = driveInSquare;
+        break;
+        case(driveInSquare):
+            state = startUp;
+        break;
+    }
+
+    //debounce
+    debounceTimer.attach(&enableStateSwitch, debounceTime);
+}
+
+//Encoder intterupt function, uses a timed interrupt to check at set frequency --> interrupt calls another 
+
+//debouncing function
+
+void enableStateSwitch(){
+    up.rise(&nextState);
+}
+
+// main() runs in its own thread in the OS
+int main()
+{
+
+    up.rise(&nextState);      //disables interrupt
+
+    encoderCount leftEncoder(PB_9);
+    encoderCount rightEncoder(PB_8);
+
+    DigitalOut leftPol(PB_2);
+    DigitalOut rightPol(PA_13);
+
+    enable = 0;
+    state = startUp;
+    lastState = pwmOn;
+
+    while (true) {
+         
+    //main state code insert here
+
+        switch (state) {
+            case startUp:
+                if (state != lastState){
+                    enable = 0;
+                    pwmRight.write(0.0f);
+                    pwmLeft.write(0.0f);
+                    lcd.cls();
+                    lcd.locate(0,0);
+                    lcd.printf("Start Screen");
+                    
+                }
+                lastState = startUp;
+                break;
+            case pwmOn:
+                if (state != lastState){
+                    directionLeft = 1;          //this is backwards 
+                    directionRight = 0;         //this is forwards
+                    
+                    //lcd.printf("Right Encoder Value %d", rightEncoder.read());
+                    pwmRight.period(0.002f);
+                    pwmRight.write(0.8f);
+                    pwmLeft.period(0.002f);
+                    pwmLeft.write(0.8f);
+                    enable = 1;
+                    lcd.cls();
+                    lcd.locate(0,0);
+                    lcd.printf("Pwm Mode On");
+                }
+
+                lastState = pwmOn;
+                break;
+            case encoderRead:
+                lcd.cls();
+                lcd.locate(0,0);
+                lcd.printf("Left Encoder Value %d", leftEncoder.countRead());
+                lcd.locate(0,16);
+                lcd.printf("Left Rotations %d", leftEncoder.totalRotations());
+                wait_us(100000);
+
+            lastState = encoderRead;
+            break;
+
+            case driveInSquare:
+                if (state != lastState){
+                    lcd.cls();
+                    lcd.locate(0,0);
+                    lcd.printf("Driving in Square");
+                }
+                
+            lastState = driveInSquare;
+            break;
+
+
+
+            }
+        }
+
+
+    }
