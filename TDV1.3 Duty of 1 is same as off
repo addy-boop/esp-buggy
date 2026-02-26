@@ -69,7 +69,7 @@ int turn_90_counts = 341;
 encoderCount leftEncoder(PB_9);
 encoderCount rightEncoder(PB_8);
 
-typedef enum{startUp, pwmOn, encoderRead, driveInSquare}programState;
+typedef enum{startUp, pwmOn, encoderRead, beforeSquare, driveInSquare}programState;
 programState state;
 programState lastState;
 
@@ -97,6 +97,9 @@ void nextState(){
             state = encoderRead;
         break;
         case(encoderRead):
+            state = beforeSquare;
+        break;
+        case(beforeSquare):
             state = driveInSquare;
         break;
         case(driveInSquare):
@@ -238,8 +241,16 @@ int main()
                 lcd.printf("Left Rotations %d", leftEncoder.totalRotations());
                 wait_us(100000);
 
-            lastState = encoderRead;
-            break;
+                lastState = encoderRead;
+                break;
+
+            case beforeSquare:
+                if(state != lastState){
+                    stop_motors();
+
+                }
+                lastState = beforeSquare;
+                break;
 
             case driveInSquare:
                 if (state != lastState){
