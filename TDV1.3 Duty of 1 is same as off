@@ -252,12 +252,12 @@ int main()
 
                     turn_right_90();
 
-                    for(int j = 0; j < 4; j++){
+                    for(int j = 0; j < 3; j++){
                        move_forward();
                        turn_left_90();
                     }
 
-                    turn_right_90();
+                    move_forward();
                     
                 }
                 
