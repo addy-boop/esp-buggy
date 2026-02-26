@@ -22,12 +22,12 @@ public:
             countTimer.reset();
             countTimer.start();
         };
-        if(count == 256){
+        /*if(count == 256){
             countTimer.stop();
             rotationTime = (countTimer.read()/256);
             //count = 0;
             overallCount++;
-        };
+        };*/
     }
 
     int countRead(){
@@ -64,8 +64,8 @@ DigitalOut leftPol(PB_15);
 DigitalOut rightPol(PA_11);
 int leftCounter = 0;
 int rightCounter = 0;
-int target_counts = 4786;
-int turn_90_counts = 1707;
+int target_counts = 522;
+int turn_90_counts = 341;
 encoderCount leftEncoder(PB_9);
 encoderCount rightEncoder(PB_8);
 
@@ -97,7 +97,7 @@ void nextState(){
             state = encoderRead;
         break;
         case(encoderRead):
-            state = startUp;
+            state = driveInSquare;
         break;
         case(driveInSquare):
             state = startUp;
@@ -243,10 +243,8 @@ int main()
 
             case driveInSquare:
                 if (state != lastState){
-                    lcd.cls();
-                    lcd.locate(0,0);
-                    lcd.printf("Driving in Square");
 
+                    
                     for(int i = 0; i < 4; i++){
                        move_forward();
                        turn_right_90();
@@ -254,7 +252,7 @@ int main()
 
                     turn_right_90();
 
-                    for(int i = 0; i < 4; i++){
+                    for(int j = 0; j < 4; j++){
                        move_forward();
                        turn_left_90();
                     }
