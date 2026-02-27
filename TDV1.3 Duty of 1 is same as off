@@ -1,3 +1,4 @@
+
 #include "mbed.h"
 #include "C12832.h"
 
@@ -65,12 +66,12 @@ DigitalOut rightPol(PA_11);
 int leftCounter = 0;
 int rightCounter = 0;
 int target_counts = 509;
-int right_turn_90_counts = 190;
-int left_turn_90_counts = 130;
+int right_turn_90_counts = 190;     //varations needed due to horizontal oscillations of gear box causing oscillatory wheel movement++++++++
+int left_turn_90_counts = 138;
 encoderCount leftEncoder(PB_9);
 encoderCount rightEncoder(PB_8);
 
-typedef enum{startUp, pwmOn, encoderRead, beforeSquare, driveInSquare}programState;
+typedef enum{startUp, pwmOnHigh, pwmOnLow, encoderRead, beforeSquare, driveInSquare}programState;
 programState state;
 programState lastState;
 
@@ -94,9 +95,12 @@ void nextState(){
 
     switch(state){
         case(startUp):
-            state = pwmOn;
+            state = pwmOnLow;
         break;
-        case(pwmOn):
+        case(pwmOnLow):
+            state = pwmOnHigh;
+        break;
+        case(pwmOnHigh):
             state = encoderRead;
         break;
         case(encoderRead):
@@ -133,7 +137,7 @@ void move_forward() {
     directionLeft = 1;
 
     while (leftEncoder.countRead() < target_counts) {
-        pwmLeft.write(0.8f);
+        pwmLeft.write(0.795f);
         pwmRight.write(0.8f);
         enable = 1;
     }
@@ -175,7 +179,7 @@ void turn_left_90() {
     pwmLeft.period(0.002f);
     pwmRight.period(0.002f);
 
-    while (leftEncoder.countRead() < (left_turn_90_counts) {
+    while (leftEncoder.countRead() < (left_turn_90_counts)) {
       pwmLeft.write(0.8f);
       pwmRight.write(0.8f);
       enable = 1;
@@ -206,7 +210,7 @@ int main()
     leftPol = 0;
     enable = 0;
     state = startUp;
-    lastState = pwmOn;
+    lastState = pwmOnHigh;
 
     while (true) {
          
@@ -225,31 +229,52 @@ int main()
                 }
                 lastState = startUp;
                 break;
-            case pwmOn:
+            case pwmOnLow:
                 if (state != lastState){
 
-                    directionLeft = 1;          //1 is forward
+                    directionLeft = 0;          //1 is forward
                     directionRight = 1;         //0 is backwards
                     
                     //lcd.printf("Right Encoder Value %d", rightEncoder.read());
                     pwmRight.period(0.002f);
-                    pwmRight.write(1.0f);
+                    pwmRight.write(0.9f);
                     pwmLeft.period(0.002f);         //high frequency used as motor works as a low pass filter leaving with DC component
                     pwmLeft.write(0.9f);
                     enable = 1;
                     lcd.cls();
                     lcd.locate(0,0);
-                    lcd.printf("Pwm Mode On");
+                    lcd.printf("Pwm Mode On Low Example");
                 }
 
-                lastState = pwmOn;
+
+                lastState = pwmOnLow;
+                break;
+            case pwmOnHigh:
+                if (state != lastState){
+
+                    directionLeft = 0;          //1 is forward
+                    directionRight = 1;         //0 is backwards
+                    
+                    //lcd.printf("Right Encoder Value %d", rightEncoder.read());
+                    pwmRight.period(0.002f);
+                    pwmRight.write(0.6f);
+                    pwmLeft.period(0.002f);         //high frequency used as motor works as a low pass filter leaving with DC component
+                    pwmLeft.write(0.6f);
+                    enable = 1;
+                    lcd.cls();
+                    lcd.locate(0,0);
+                    lcd.printf("Pwm Mode On High Example");
+                }
+
+
+                lastState = pwmOnHigh;
                 break;
             case encoderRead:
                 lcd.cls();
                 lcd.locate(0,0);
                 lcd.printf("Left Encoder Value %d", leftEncoder.countRead());
                 lcd.locate(0,16);
-                lcd.printf("Left Rotations %d", leftEncoder.totalRotations());
+                lcd.printf("Right Encoder Value %d", rightEncoder.countRead());
                 wait_us(100000);
 
                 lastState = encoderRead;
@@ -277,7 +302,7 @@ int main()
                     turn_left_90();
 
                     for(int j = 0; j < 3; j++){
-                       move_forward();
+                       move_forward(); 
                        turn_left_90();
                     }
 
@@ -293,25 +318,3 @@ int main()
 
 
     }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
