@@ -69,7 +69,6 @@ encoderCount leftEncoder(PB_9);
 encoderCount rightEncoder(PB_8);
 
 //analog input pins for the sensor detection
-AnalogIn   ain1(PA_0);
 AnalogIn   ain2(PA_1);
 AnalogIn   ain3(PA_4);
 AnalogIn   ain4(PB_0);
@@ -319,11 +318,9 @@ int main()
             case read_sensor:
                 lcd.cls();
                 lcd.locate(0,0);
-                lcd.printf("1st sensor reading %f", ain1.read());
-                lcd.locate(0,16);
                 lcd.printf("2nd sensor reading %f", ain2.read());
                 
-    
             }
         }
     }
+
