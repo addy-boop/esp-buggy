@@ -65,10 +65,12 @@ class sensors: public AnalogIn{
 
     void readOnVoltage(){
         onVoltage = read();
+        onVoltage = 2*onVoltage;
     }
 
     void readOffVoltage(){
         offVoltage = read();
+        offVoltage = 2*offVoltage;
     }
 
     float readNRVoltage(){
@@ -277,9 +279,9 @@ int main()
     hm10.attach(&bluetoothIRS, SerialBase::RxIrq);  //sets up state change IRS
 
     //sensor variable declarations
-    sensors sens1(PA_4);        //named from left to right
-    sensors sens2(PA_1);
-    sensors sens3(PB_0);
+    sensors sens1(PB_0);        //named from left to right
+    sensors sens2(PA_2);
+    sensors sens3(PA_1);
     sensors sens4(PA_0);
     sensors sens5(PC_1);
     sensors backSens(PC_0);
@@ -351,11 +353,10 @@ int main()
                 group1Enable.write(group1Constant);
                 group2Enable.write(group2Constant);
 
-                wait_us(100000000);
+                wait_us(100000);
             
             }
         }
 
 
     }
-
