@@ -1,5 +1,4 @@
 
-
 #include "mbed.h"
 #include "C12832.h"
 
@@ -99,7 +98,7 @@ DigitalOut enable(PD_2);
 DigitalOut directionLeft(PB_14);
 DigitalOut directionRight(PB_12);
 DigitalOut leftPol(PB_15);
-DigitalOut rightPol(PA_11);
+DigitalOut rightPol(PA_10);
 int leftCounter = 0;
 int rightCounter = 0;
 int target_counts = 509;
@@ -238,7 +237,10 @@ void enableStateSwitch(){
 
 void bluetoothIRS(){
     if(hm10.readable()){
-        s = hm10.getc();
+        s = hm10.getc(); // s =hm10.getc();
+        if (s == 'B'){
+            LED = !LED;
+        }
         if(s == 'A'){
             switch(state){
                 case(startUp):
@@ -260,7 +262,7 @@ void bluetoothIRS(){
 int main()
 {
 
-    up.rise(&nextState);      //disables interrupt
+    up.rise(&nextState);   
 
     //encoderCount leftEncoder(PB_9);
     //encoderCount rightEncoder(PB_8);
@@ -275,10 +277,10 @@ int main()
     hm10.attach(&bluetoothIRS, SerialBase::RxIrq);  //sets up state change IRS
 
     //sensor variable declarations
-    sensors sens1(PA_0);        //named from left to right
+    sensors sens1(PA_4);        //named from left to right
     sensors sens2(PA_1);
-    sensors sens3(PA_4);
-    sensors sens4(PB_0);
+    sensors sens3(PB_0);
+    sensors sens4(PA_0);
     sensors sens5(PC_1);
     sensors backSens(PC_0);
 
@@ -286,8 +288,8 @@ int main()
     int group1Constant = 0;
     int group2Constant = 1;
 
-
     while (true) {
+
          
     //main state code insert here
 
@@ -315,7 +317,6 @@ int main()
                 lcd.printf("Right Encoder Value %d", rightEncoder.countRead());
                 wait_us(100000);
 
-                lastState = encoderRead;
                 break;
 
             case sensorReading:
@@ -336,7 +337,11 @@ int main()
                 }
                 lcd.cls();
                 lcd.locate(0,0);
-                lcd.write("Sensor 3 Reading: %.2f", sens2.readNRVoltage());
+                lcd.printf("Sensor 1 Reading: %.2f", sens1.readNRVoltage());
+                lcd.locate(0,10);
+                lcd.printf("Sensor 5 Reading: %.2f", sens5.readNRVoltage());
+                lcd.locate(0,20);
+                lcd.printf("Sensor 3 Reading: %.2f", sens3.readNRVoltage());
 
                 sensorConstant = !sensorConstant;
 
@@ -346,10 +351,11 @@ int main()
                 group1Enable.write(group1Constant);
                 group2Enable.write(group2Constant);
 
-                wait_us(500);
+                wait_us(100000000);
             
             }
         }
 
 
     }
+
