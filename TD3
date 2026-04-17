@@ -1,0 +1,455 @@
+#include "mbed.h"
+#include "C12832.h"
+
+class encoderCount{
+
+private:
+    InterruptIn countInterrupt;
+    volatile int count;
+    volatile int overallCount;
+    volatile float rotationTime, velocity;
+    Timer countTimer;
+
+public:
+    encoderCount(PinName pin):
+    countInterrupt(pin), count(0), rotationTime(0.0f), overallCount(0), velocity(0){
+        countInterrupt.rise(callback(this, &encoderCount::increment));
+    }
+
+    void increment(){
+        count++;
+        if(count == 1){
+            countTimer.reset();
+            countTimer.start();
+        };
+        if(count == 255){
+            countTimer.stop();
+            rotationTime = (countTimer.read());
+            count = 0;
+            //overallCount++;
+        };
+    }
+
+    
+    float velocityRead(){
+        velocity = ((3.14159f * (79.0f/1000.0f))/rotationTime);
+        return velocity;
+    }
+
+    int countRead(){
+        return count;
+    }
+
+    float countRotationTime(){
+        return rotationTime;
+    }
+
+    int totalRotations(){
+        return overallCount;
+    }
+
+    void countreset() {
+       count = 0;
+}
+ 
+
+};
+
+class sensors: public AnalogIn{
+
+    private:
+    float onVoltage, offVoltage, nRVoltage;
+    char colour;
+
+    public:
+    sensors(PinName pin):
+    AnalogIn(pin), onVoltage(0.0f), offVoltage(0.0f), nRVoltage(0.0f), colour('B'){
+    
+    }
+
+    void readOnVoltage(){
+        onVoltage = read();
+        onVoltage = 2*onVoltage;
+    }
+
+    void readOffVoltage(){
+        offVoltage = read();
+        offVoltage = 2*offVoltage;
+    }
+
+    float readNRVoltage(){
+        nRVoltage = -1*(onVoltage - offVoltage);
+        return (nRVoltage);
+    }
+
+    void colourCheck(){
+        if(nRVoltage > 0.3f){       //0.1 needs to be average black emitter on value;
+            colour = 'W';
+        }
+        else{
+            colour = 'B';
+        }
+    }
+
+    char colourRead(){
+        return colour;
+    }
+};
+
+//global variables
+
+C12832 lcd(D11,D13,D12,D7,D10);
+
+PwmOut pwmRight(PB_7);      //sets pwm pin 
+PwmOut pwmLeft(PB_1);       //sets left wheel control through pwm
+InterruptIn up(A2);
+DigitalOut enable(PD_2);
+DigitalOut directionLeft(PB_14);
+DigitalOut directionRight(PC_12);
+DigitalOut leftPol(PB_15);
+DigitalOut rightPol(PC_10);
+int leftCounter = 0;
+int rightCounter = 0;
+int target_counts = 509;
+int right_turn_90_counts = 165;     //varations needed due to horizontal oscillations of gear box causing oscillatory wheel movement++++++++
+int left_turn_90_counts = 170;
+encoderCount leftEncoder(PB_9);
+encoderCount rightEncoder(PB_8);
+float speed = 0.5;
+int k = 5;
+float new_vel;
+float Ki = 0.5f;          // start small!
+float integral = 0.0f;
+float dt = 0.05f;
+float derror_pos;
+float preverror_pos;
+float Kd = 0.02f;
+float Kp;
+float pwmLeft_val;
+float pwmRight_val;
+float ltarget_vel;
+float rtarget_vel;
+float integral_left;
+float integral_right;
+float error_vel_left;
+float error_vel_right;
+float Kp_vel = 0.05;
+float Ki_vel = 0.05;
+
+//Bluetooth Variables
+Serial hm10(PA_11, PA_12);
+char s;
+DigitalOut LED(D5);
+
+typedef enum{startUp, encoderRead, sensorReading, controlstate}programState;
+programState state;
+programState lastState;
+
+Timeout debounceTimer;
+const float debounceTime = 0.10f;       //100ms
+
+//sensors
+DigitalOut group1Enable(PC_11);
+DigitalOut group2Enable(PC_9);
+
+//Functions Start
+
+//forward declaration of enableStateSwitch needed as call each other
+
+void enableStateSwitch();
+
+//next state ISR
+
+void nextState(){
+
+    //interrupt disable for debounce
+  
+    up.rise(NULL);
+
+    switch(state){
+        case(startUp):
+            state = encoderRead;
+        break;
+        case(encoderRead):
+            state = sensorReading;
+        break;
+        case(sensorReading):
+            state = controlstate;
+        break;
+        case(controlstate):
+             state = startUp;
+        break;
+    }
+
+    //debounce
+    debounceTimer.attach(&enableStateSwitch, debounceTime);
+}
+
+void stop_motors() {
+    pwmLeft.write(1.0f);
+    pwmRight.write(1.0f);
+    enable = 0;
+}
+
+void move_forward() {
+    // Reset counts before moving
+    leftEncoder.countreset();
+    rightEncoder.countreset();
+
+    // Set direction - both forward
+    directionRight = 1;
+    directionLeft = 1;
+
+    while (leftEncoder.countRead() < target_counts) {
+        pwmLeft.write(0.81f);
+        pwmRight.write(0.8f);
+        enable = 1;
+    }
+
+    stop_motors();
+    
+}
+void turn_right_90() {
+
+    leftEncoder.countreset();
+    rightEncoder.countreset();
+
+    directionRight = 0;  // both motors move forwards.
+    directionLeft = 1;
+
+    pwmLeft.period(0.0002f);
+    pwmRight.period(0.0002f);
+
+
+    while (leftEncoder.countRead() < right_turn_90_counts) {
+        pwmLeft.write(0.81f);
+        pwmRight.write(0.8f);
+        enable = 1;
+    }
+
+
+    stop_motors();
+}
+
+void turn_left_90() {
+
+    leftEncoder.countreset();
+    rightEncoder.countreset();
+
+    directionRight = 1;  // move forwards
+    directionLeft = 0;
+
+    pwmLeft.period(0.0002f);
+    pwmRight.period(0.0002f);
+
+    while (leftEncoder.countRead() < left_turn_90_counts) {
+      pwmLeft.write(0.81f);
+      pwmRight.write(0.8f);
+      enable = 1;
+     }
+
+    stop_motors();
+
+}
+
+//Encoder intterupt function, uses a timed interrupt to check at set frequency --> interrupt calls another
+//debouncing function
+
+void enableStateSwitch(){
+    up.rise(&nextState);
+}
+
+//bluetooth state change function
+
+void bluetoothIRS(){
+    if(hm10.readable()){
+        s = hm10.getc(); // s =hm10.getc();
+        if (s == 'B'){
+            LED = !LED;
+        }
+        if(s == 'A'){
+            switch(state){
+                case(startUp):
+                    state = encoderRead;
+                break;
+                case(encoderRead):
+                    state = sensorReading;
+                break;
+                case(sensorReading):
+                    state = startUp;
+                break;
+                }
+            }
+        }
+}
+
+    sensors sens1(PB_0);        //named from left to right
+    sensors sens2(PA_2);
+    sensors sens3(PA_1);
+    sensors sens4(PA_0);
+    sensors sens5(PC_1);
+    sensors backSens(PC_0);
+
+void controller () {
+    float s1 = sens1.readNRVoltage();
+    float s2 = sens2.readNRVoltage();
+    float s3 = sens3.readNRVoltage();
+    float s4 = sens4.readNRVoltage();
+    float s5 = sens5.readNRVoltage();
+
+    //float error_vel = speed - leftEncoder.velocityRead();
+    float error_pos = (-2*s1) + (-1*s2) + (0*s3) + (1*s4) + (2*s5);
+    if(error_pos > 0.001f){
+    error_pos = ((-2.0f*s1) + (-1.0f*s2) + (0.0f*s3) + (1.0f*s4) + (2.0f*s5)) / (s1+s2+s3+s4+s5);
+}
+    float correction = Kp*error_pos; //this is for the proportional of the position.
+
+    derror_pos = error_pos - preverror_pos;
+    float d_pos = derror_pos/dt;
+
+    float steering = correction + Kd*d_pos;
+
+    ltarget_vel = 0.3 - steering; //slow the left
+    rtarget_vel = 0.3 + steering; //make right faster
+
+    error_vel_left = ltarget_vel - leftEncoder.velocityRead();
+    error_vel_right = rtarget_vel - rightEncoder.velocityRead();
+
+    //now implement PI for the velocity.
+    integral_left += error_vel_left * dt;
+    integral_right += error_vel_right * dt;
+
+    if(integral_left > 1.0f) integral_left = 1.0f;
+    if(integral_left < -1.0f) integral_left = -1.0f;
+
+    if(integral_right > 1.0f) integral_right = 1.0f;
+    if(integral_right < -1.0f) integral_right = -1.0f;
+
+    float leftControl = Kp_vel * error_vel_left + Ki_vel * integral_left;
+    float rightControl = Kp_vel * error_vel_right + Ki_vel * integral_right;
+
+    float pwmLeft_val = 0.75 + leftControl;
+    float pwmRight_val = 0.75 + rightControl;
+
+    if(pwmLeft_val > 0.95f) pwmLeft_val = 0.95f; //for clamping the speed between certain values.
+    if(pwmLeft_val < 0.55f) pwmLeft_val = 0.55f;
+
+    if(pwmRight_val > 0.95f) pwmRight_val = 0.95f;
+    if(pwmRight_val < 0.55f) pwmRight_val = 0.55f;
+
+    pwmLeft.write(pwmLeft_val);
+    pwmRight.write(pwmRight_val);
+
+    //pwmLeft.write(pwmValue);
+    preverror_pos = error_pos;
+
+}
+
+// main() runs in its own thread in the OS
+int main()
+{
+
+    up.rise(&nextState);   
+
+    //encoderCount leftEncoder(PB_9);
+    //encoderCount rightEncoder(PB_8);
+ 
+    rightPol = 0;
+    leftPol = 0;
+    enable = 0;
+    state = startUp;
+    lastState = encoderRead;
+
+    hm10.baud(9600);        //sets up baud rate
+    hm10.attach(&bluetoothIRS, SerialBase::RxIrq);  //sets up state change IRS
+
+    //sensor variable declarations
+
+    int sensorConstant = 0;
+    int group1Constant = 0;
+    int group2Constant = 1;
+    
+    
+    while (true) {
+    //main state code insert here
+
+        switch (state) {
+            case startUp:
+                if (state != lastState){
+                    enable = 0;
+                    pwmRight.write(1.0f);       //turns them off
+                    pwmLeft.write(1.0f);
+                    lcd.cls();
+                    lcd.locate(0,0);
+                    lcd.printf("Start Screen");
+                    
+                }
+                lastState = startUp;
+                break;
+
+            case encoderRead:
+                directionLeft = 1;
+                directionRight = 1;
+                pwmRight.write(0.8f);
+                pwmLeft.write(0.6f);
+                enable = 1;
+                lcd.cls();
+                lcd.locate(0,0);
+                lcd.printf("Left Encoder Value %.2f", leftEncoder.velocityRead());
+                lcd.locate(0,16);
+                lcd.printf("Right Encoder Value %.2f", rightEncoder.velocityRead());
+                wait_us(100000);
+
+                break;
+
+            case sensorReading:
+
+                if(sensorConstant == 0){
+                    sens1.readOnVoltage();
+                    sens2.readOffVoltage();
+                    sens3.readOnVoltage();
+                    sens4.readOffVoltage();
+                    sens5.readOnVoltage();
+                }
+                else{
+                    sens1.readOffVoltage();
+                    sens2.readOnVoltage();
+                    sens3.readOffVoltage();
+                    sens4.readOnVoltage();
+                    sens5.readOffVoltage();
+                }
+                pwmRight = 1.0f;
+                pwmLeft = 1.0f;
+
+                sens1.colourCheck();
+                sens5.colourCheck();
+
+                lcd.cls();
+                lcd.locate(0,0);
+                lcd.printf("Sensor 1 Reading: %.2f", sens1.readNRVoltage());
+                lcd.locate(0,10);
+                lcd.printf("Sensor 5 Reading: %.2f", sens5.readNRVoltage());
+                lcd.locate(0,20);
+                lcd.printf("Sensor 1 is %c, Sensor 5 is %c", sens1.colourRead(),sens5.colourRead());
+
+                sensorConstant = !sensorConstant;
+
+                group1Constant = !group1Constant;      //switches the enables for groups
+                group2Constant = !group2Constant;
+
+                group1Enable.write(group1Constant);
+                group2Enable.write(group2Constant);
+
+                wait_us(100000);
+            
+            case controlstate:
+                lcd.cls();
+                lcd.locate(0,0);
+                lcd.printf("Start moving");
+                controller();
+
+            }
+        }
+
+
+    }
