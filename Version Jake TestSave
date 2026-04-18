@@ -1,33 +1,26 @@
-
 #include "mbed.h"
 #include "C12832.h"
-
-//properties
-//Wheel Max Speed = 2.35 m/s
+#include "mbed2/299/TARGET_NUCLEO_F401RE/TARGET_STM/TARGET_STM32F4/TARGET_NUCLEO_F401RE/PinNames.h"
+#include "MPU6050.h"
 
 class encoderCount{
 
 private:
     InterruptIn countInterrupt;
-    volatile int count, velocityCount;
+    volatile int count;
     volatile int overallCount;
-    volatile float triggerTime;
-    volatile float rotationTime, velocity, targetVelocity, velocityError, dutyControl, speedConstant, pwmDuty, baseVelocity;
+    volatile float rotationTime, velocity;
     Timer countTimer;
-    Ticker velocityTicker;
 
 public:
     encoderCount(PinName pin):
-    countInterrupt(pin), count(0), rotationTime(0.0f), overallCount(0), velocity(0.0f), velocityCount(0.0f), baseVelocity(0.0f),
-    triggerTime(0.05f), targetVelocity(0.31f), velocityError(0.0f), dutyControl(0.0f), speedConstant(0.01f), pwmDuty(0.5f){     
+    countInterrupt(pin), count(0), rotationTime(0.0f), overallCount(0), velocity(0){
         countInterrupt.rise(callback(this, &encoderCount::increment));
-        velocityTicker.attach(this, &encoderCount::triggeredVelocity, triggerTime);
     }
 
     void increment(){
         count++;
-        velocityCount++;    
-/*        if(count == 1){                   //if statement used for count based trigger not time
+        if(count == 1){
             countTimer.reset();
             countTimer.start();
         };
@@ -36,35 +29,12 @@ public:
             rotationTime = (countTimer.read());
             count = 0;
             //overallCount++;
-        };      */
+        };
     }
 
-    void speedController(){
-            velocityError = targetVelocity - velocity;
-            dutyControl = speedConstant * velocityError; 
-
-            pwmDuty -= dutyControl;
-
-            if(pwmDuty > 1.0f){
-                pwmDuty = 1.0f;
-            }
-            if(pwmDuty < 0.2f){
-                pwmDuty = 0.2f;
-            }
-
-    }
-
-    void triggeredVelocity(){
-        velocity = (float(velocityCount)/256.0f)*((3.14159f * (79.0f/1000.0f))/triggerTime);
-        velocityCount = 0;
-    }
-
-    float pwmDutyRead(){
-        return pwmDuty;
-    }
     
     float velocityRead(){
-    //    velocity = ((3.14159f * (79.0f/1000.0f))/rotationTime);       //only used for count trigger not time
+        velocity = ((3.14159f * (79.0f/1000.0f))/rotationTime);
         return velocity;
     }
 
@@ -86,7 +56,6 @@ public:
  
 
 };
-
 
 class sensors: public AnalogIn{
 
@@ -129,7 +98,6 @@ class sensors: public AnalogIn{
     }
 };
 
-
 //global variables
 
 C12832 lcd(D11,D13,D12,D7,D10);
@@ -149,13 +117,38 @@ int right_turn_90_counts = 165;     //varations needed due to horizontal oscilla
 int left_turn_90_counts = 170;
 encoderCount leftEncoder(PB_9);
 encoderCount rightEncoder(PB_8);
+float speed = 0.5;
+int k = 5;
+float new_vel;
+float Ki = 0.5f;          // start small!
+float integral = 0.0f;
+float dt = 0.05f;
+float derror_pos;
+float preverror_pos;
+float Kd = 0.02f;
+float Kp;
+float pwmLeft_val;
+float pwmRight_val;
+float ltarget_vel;
+float rtarget_vel;
+float integral_left;
+float integral_right;
+float error_vel_left;
+float error_vel_right;
+float Kp_vel = 0.05;
+float Ki_vel = 0.05;
+float lastS1 = 0.0f;
+float lastS2 = 0.0f;
+float lastS3 = 0.0f;
+float lastS4 = 0.0f;
+float lastS5 = 0.0f;
 
 //Bluetooth Variables
 Serial hm10(PA_11, PA_12);
 char s;
 DigitalOut LED(D5);
 
-typedef enum{startUp, encoderRead, sensorReading}programState;
+typedef enum{startUp, encoderRead, sensorReading, controlstate}programState;
 programState state;
 programState lastState;
 
@@ -166,7 +159,31 @@ const float debounceTime = 0.10f;       //100ms
 DigitalOut group1Enable(PC_11);
 DigitalOut group2Enable(PC_9);
 
+//6DOF IMU Variables 
+
+I2C i2c(PB_3,PB_10);
+MPU6050 mpu(i2c);
+float yaw = 0.0f;
+float zGyro = 0.0f;
+float imuTime = 0.01f;
+
+Ticker imuTicker;
+
 //Functions Start
+
+//imu Functions
+
+void updateYaw(){       //call by ticker so we can update it
+    int16_t gx, gy, gz;
+    mpu.getRotation(&gx, &gy, &gz);
+    zGyro = gz/131.0f;      //converts raw value 
+    yaw += zGyro * imuTime;
+}
+
+bool turnCheck180(){
+    return (yaw >= 175.0f || yaw <= -175.0f);       //can change tolerance through testing
+}
+
 
 //forward declaration of enableStateSwitch needed as call each other
 
@@ -178,7 +195,6 @@ void nextState(){
 
     //interrupt disable for debounce
   
-  
     up.rise(NULL);
 
     switch(state){
@@ -189,16 +205,16 @@ void nextState(){
             state = sensorReading;
         break;
         case(sensorReading):
-            state = startUp;
+            state = controlstate;
+        break;
+        case(controlstate):
+             state = startUp;
         break;
     }
 
     //debounce
     debounceTimer.attach(&enableStateSwitch, debounceTime);
 }
-
-
-
 
 void stop_motors() {
     pwmLeft.write(1.0f);
@@ -224,7 +240,6 @@ void move_forward() {
     stop_motors();
     
 }
-
 void turn_right_90() {
 
     leftEncoder.countreset();
@@ -268,8 +283,7 @@ void turn_left_90() {
 
 }
 
-//Encoder intterupt function, uses a timed interrupt to check at set frequency --> interrupt calls another 
-
+//Encoder intterupt function, uses a timed interrupt to check at set frequency --> interrupt calls another
 //debouncing function
 
 void enableStateSwitch(){
@@ -281,6 +295,21 @@ void enableStateSwitch(){
 void bluetoothIRS(){
     if(hm10.readable()){
         s = hm10.getc(); // s =hm10.getc();
+        if (s == 'T'){                              //need to test if works
+            yaw = 0.0f;                             //if not will set a flag do180Turn = true;  
+            imuTicker.attach(&updateYaw, imuTime);  //and an if in main loop
+
+            directionRight = 0;
+            directionLeft = 0;
+            enable = 1;
+
+            while (!turnCheck180()){
+                pwmLeft.write(0.81f);           
+                pwmRight.write(0.81f);
+            }
+            stop_motors();
+            imuTicker.detach();
+        }
         if (s == 'B'){
             LED = !LED;
         }
@@ -300,6 +329,85 @@ void bluetoothIRS(){
         }
 }
 
+    sensors sens1(PB_0);        //named from left to right
+    sensors sens2(PA_2);
+    sensors sens3(PA_1);
+    sensors sens4(PA_0);
+    sensors sens5(PC_1);
+    sensors backSens(PC_0);
+
+void controller () {
+    float s1 = sens1.readNRVoltage();
+    float s2 = sens2.readNRVoltage();
+    float s3 = sens3.readNRVoltage();
+    float s4 = sens4.readNRVoltage();
+    float s5 = sens5.readNRVoltage();
+
+    float stopTolerance = 0.1f;
+
+    //check to see if a stop needs to occur
+
+    if(s1<=(lastS1+stopTolerance)&&s1>=(lastS1-stopTolerance)&&
+        s2<=(lastS2+stopTolerance)&&s2>=(lastS2-stopTolerance)&&
+        s3<=(lastS3+stopTolerance)&&s3>=(lastS3-stopTolerance)&&
+        s4<=(lastS4+stopTolerance)&&s4>=(lastS4-stopTolerance)&&
+        s5<=(lastS5+stopTolerance)&&s5>=(lastS5-stopTolerance)){        //idea to increase counts to x amount and if reached then stop the buggy
+
+        }
+
+    //float error_vel = speed - leftEncoder.velocityRead();
+    float error_pos = (-2*s1) + (-1*s2) + (0*s3) + (1*s4) + (2*s5);
+    if(error_pos > 0.001f){
+    error_pos = ((-2.0f*s1) + (-1.0f*s2) + (0.0f*s3) + (1.0f*s4) + (2.0f*s5)) / (s1+s2+s3+s4+s5);
+}
+    float correction = Kp*error_pos; //this is for the proportional of the position.
+
+    derror_pos = error_pos - preverror_pos;
+    float d_pos = derror_pos/dt;
+
+    float steering = correction + Kd*d_pos;
+
+    ltarget_vel = 0.3 - steering; //slow the left
+    rtarget_vel = 0.3 + steering; //make right faster
+
+    error_vel_left = ltarget_vel - leftEncoder.velocityRead();
+    error_vel_right = rtarget_vel - rightEncoder.velocityRead();
+
+    //now implement PI for the velocity.
+    integral_left += error_vel_left * dt;
+    integral_right += error_vel_right * dt;
+
+    if(integral_left > 1.0f) integral_left = 1.0f;
+    if(integral_left < -1.0f) integral_left = -1.0f;
+
+    if(integral_right > 1.0f) integral_right = 1.0f;
+    if(integral_right < -1.0f) integral_right = -1.0f;
+
+    float leftControl = Kp_vel * error_vel_left + Ki_vel * integral_left;
+    float rightControl = Kp_vel * error_vel_right + Ki_vel * integral_right;
+
+    float pwmLeft_val = 0.75 + leftControl;
+    float pwmRight_val = 0.75 + rightControl;
+
+    if(pwmLeft_val > 0.95f) pwmLeft_val = 0.95f; //for clamping the speed between certain values.
+    if(pwmLeft_val < 0.55f) pwmLeft_val = 0.55f;
+
+    if(pwmRight_val > 0.95f) pwmRight_val = 0.95f;
+    if(pwmRight_val < 0.55f) pwmRight_val = 0.55f;
+
+    pwmLeft.write(pwmLeft_val);
+    pwmRight.write(pwmRight_val);
+
+    //pwmLeft.write(pwmValue);
+    preverror_pos = error_pos;
+    lastS1 = s1;
+    lastS2 = s2;
+    lastS3 = s3;
+    lastS4 = s4;
+    lastS5 = s5;
+
+}
+
 
 // main() runs in its own thread in the OS
 int main()
@@ -309,7 +417,7 @@ int main()
 
     //encoderCount leftEncoder(PB_9);
     //encoderCount rightEncoder(PB_8);
-
+ 
     rightPol = 0;
     leftPol = 0;
     enable = 0;
@@ -320,20 +428,16 @@ int main()
     hm10.attach(&bluetoothIRS, SerialBase::RxIrq);  //sets up state change IRS
 
     //sensor variable declarations
-    sensors sens1(PB_0);        //named from left to right
-    sensors sens2(PA_2);
-    sensors sens3(PA_1);
-    sensors sens4(PA_0);
-    sensors sens5(PC_1);
-    sensors backSens(PC_0);
 
     int sensorConstant = 0;
     int group1Constant = 0;
     int group2Constant = 1;
+    
+    //imu
 
+    mpu.initialize();   //at base is at 250  degrees/second with sens of LSB/degrees/second
+    
     while (true) {
-
-         
     //main state code insert here
 
         switch (state) {
@@ -353,10 +457,8 @@ int main()
             case encoderRead:
                 directionLeft = 1;
                 directionRight = 1;
-                rightEncoder.speedController();
-                leftEncoder.speedController();
-                pwmRight.write(rightEncoder.pwmDutyRead());
-                pwmLeft.write(leftEncoder.pwmDutyRead());
+                pwmRight.write(0.8f);
+                pwmLeft.write(0.6f);
                 enable = 1;
                 lcd.cls();
                 lcd.locate(0,0);
@@ -407,6 +509,12 @@ int main()
 
                 wait_us(100000);
             
+            case controlstate:
+                lcd.cls();
+                lcd.locate(0,0);
+                lcd.printf("Start moving");
+                controller();
+
             }
         }
 
