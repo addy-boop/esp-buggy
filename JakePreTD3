@@ -1,0 +1,420 @@
+
+#include "mbed.h"
+#include "C12832.h"
+
+//properties
+//Wheel Max Speed = 2.35 m/s
+
+class encoderCount{
+
+private:
+    InterruptIn countInterrupt;
+    volatile int count, velocityCount;
+    volatile int overallCount;
+    volatile float triggerTime;
+    volatile float rotationTime, velocity, targetVelocity, velocityError, dutyControl, speedConstant, pwmDuty, baseVelocity;
+    Timer countTimer;
+    Ticker velocityTicker;
+
+public:
+    encoderCount(PinName pin):
+    countInterrupt(pin), count(0), rotationTime(0.0f), overallCount(0), velocity(0.0f), velocityCount(0.0f), baseVelocity(0.0f),
+    triggerTime(0.05f), targetVelocity(0.31f), velocityError(0.0f), dutyControl(0.0f), speedConstant(0.01f), pwmDuty(0.5f){     
+        countInterrupt.rise(callback(this, &encoderCount::increment));
+        velocityTicker.attach(this, &encoderCount::triggeredVelocity, triggerTime);
+    }
+
+    void increment(){
+        count++;
+        velocityCount++;    
+/*        if(count == 1){                   //if statement used for count based trigger not time
+            countTimer.reset();
+            countTimer.start();
+        };
+        if(count == 255){
+            countTimer.stop();
+            rotationTime = (countTimer.read());
+            count = 0;
+            //overallCount++;
+        };      */
+    }
+
+    void speedController(){
+            velocityError = targetVelocity - velocity;
+            dutyControl = speedConstant * velocityError; 
+
+            pwmDuty -= dutyControl;
+
+            if(pwmDuty > 1.0f){
+                pwmDuty = 1.0f;
+            }
+            if(pwmDuty < 0.2f){
+                pwmDuty = 0.2f;
+            }
+
+    }
+
+    void triggeredVelocity(){
+        velocity = (float(velocityCount)/256.0f)*((3.14159f * (79.0f/1000.0f))/triggerTime);
+        velocityCount = 0;
+    }
+
+    float pwmDutyRead(){
+        return pwmDuty;
+    }
+    
+    float velocityRead(){
+    //    velocity = ((3.14159f * (79.0f/1000.0f))/rotationTime);       //only used for count trigger not time
+        return velocity;
+    }
+
+    int countRead(){
+        return count;
+    }
+
+    float countRotationTime(){
+        return rotationTime;
+    }
+
+    int totalRotations(){
+        return overallCount;
+    }
+
+    void countreset() {
+       count = 0;
+}
+ 
+
+};
+
+
+class sensors: public AnalogIn{
+
+    private:
+    float onVoltage, offVoltage, nRVoltage;
+    char colour;
+
+    public:
+    sensors(PinName pin):
+    AnalogIn(pin), onVoltage(0.0f), offVoltage(0.0f), nRVoltage(0.0f), colour('B'){
+    
+    }
+
+    void readOnVoltage(){
+        onVoltage = read();
+        onVoltage = 2*onVoltage;
+    }
+
+    void readOffVoltage(){
+        offVoltage = read();
+        offVoltage = 2*offVoltage;
+    }
+
+    float readNRVoltage(){
+        nRVoltage = -1*(onVoltage - offVoltage);
+        return (nRVoltage);
+    }
+
+    void colourCheck(){
+        if(nRVoltage > 0.3f){       //0.1 needs to be average black emitter on value;
+            colour = 'W';
+        }
+        else{
+            colour = 'B';
+        }
+    }
+
+    char colourRead(){
+        return colour;
+    }
+
+
+
+
+};
+
+
+//global variables
+
+C12832 lcd(D11,D13,D12,D7,D10);
+
+PwmOut pwmRight(PB_7);      //sets pwm pin 
+PwmOut pwmLeft(PB_1);       //sets left wheel control through pwm
+InterruptIn up(A2);
+DigitalOut enable(PD_2);
+DigitalOut directionLeft(PB_14);
+DigitalOut directionRight(PC_12);
+DigitalOut leftPol(PB_15);
+DigitalOut rightPol(PC_10);
+int leftCounter = 0;
+int rightCounter = 0;
+int target_counts = 509;
+int right_turn_90_counts = 165;     //varations needed due to horizontal oscillations of gear box causing oscillatory wheel movement++++++++
+int left_turn_90_counts = 170;
+encoderCount leftEncoder(PB_9);
+encoderCount rightEncoder(PB_8);
+
+//Bluetooth Variables
+Serial hm10(PA_11, PA_12);
+char s;
+DigitalOut LED(D5);
+
+typedef enum{startUp, encoderRead, sensorReading, lineController}programState;
+programState state;
+programState lastState;
+
+Timeout debounceTimer;
+const float debounceTime = 0.10f;       //100ms
+
+//sensors
+DigitalOut group1Enable(PC_11);
+DigitalOut group2Enable(PC_9);
+
+//Functions Start
+
+//forward declaration of enableStateSwitch needed as call each other
+
+void enableStateSwitch();
+
+//next state ISR
+
+void nextState(){
+
+    //interrupt disable for debounce
+  
+  
+    up.rise(NULL);
+
+    switch(state){
+        case(startUp):
+            state = encoderRead;
+        break;
+        case(encoderRead):
+            state = sensorReading;
+        break;
+        case(sensorReading):
+            state = startUp;
+        break;
+    }
+
+    //debounce
+    debounceTimer.attach(&enableStateSwitch, debounceTime);
+}
+
+
+
+
+void stop_motors() {
+    pwmLeft.write(1.0f);
+    pwmRight.write(1.0f);
+    enable = 0;
+}
+
+void move_forward() {
+    // Reset counts before moving
+    leftEncoder.countreset();
+    rightEncoder.countreset();
+
+    // Set direction - both forward
+    directionRight = 1;
+    directionLeft = 1;
+
+    while (leftEncoder.countRead() < target_counts) {
+        pwmLeft.write(0.81f);
+        pwmRight.write(0.8f);
+        enable = 1;
+    }
+
+    stop_motors();
+    
+}
+
+void turn_right_90() {
+
+    leftEncoder.countreset();
+    rightEncoder.countreset();
+
+    directionRight = 0;  // both motors move forwards.
+    directionLeft = 1;
+
+    pwmLeft.period(0.0002f);
+    pwmRight.period(0.0002f);
+
+
+    while (leftEncoder.countRead() < right_turn_90_counts) {
+        pwmLeft.write(0.81f);
+        pwmRight.write(0.8f);
+        enable = 1;
+    }
+
+
+    stop_motors();
+}
+
+void turn_left_90() {
+
+    leftEncoder.countreset();
+    rightEncoder.countreset();
+
+    directionRight = 1;  // move forwards
+    directionLeft = 0;
+
+    pwmLeft.period(0.0002f);
+    pwmRight.period(0.0002f);
+
+    while (leftEncoder.countRead() < left_turn_90_counts) {
+      pwmLeft.write(0.81f);
+      pwmRight.write(0.8f);
+      enable = 1;
+     }
+
+    stop_motors();
+
+}
+
+//Encoder intterupt function, uses a timed interrupt to check at set frequency --> interrupt calls another 
+
+//debouncing function
+
+void enableStateSwitch(){
+    up.rise(&nextState);
+}
+
+//bluetooth state change function
+
+void bluetoothIRS(){
+    if(hm10.readable()){
+        s = hm10.getc(); // s =hm10.getc();
+        if (s == 'B'){
+            LED = !LED;
+        }
+        if(s == 'A'){
+            switch(state){
+                case(startUp):
+                    state = encoderRead;
+                break;
+                case(encoderRead):
+                    state = sensorReading;
+                break;
+                case(sensorReading):
+                    state = startUp;
+                break;
+                }
+            }
+        }
+}
+
+
+// main() runs in its own thread in the OS
+int main()
+{
+
+    up.rise(&nextState);   
+
+    //encoderCount leftEncoder(PB_9);
+    //encoderCount rightEncoder(PB_8);
+
+    rightPol = 0;
+    leftPol = 0;
+    enable = 0;
+    state = startUp;
+    lastState = encoderRead;
+
+    hm10.baud(9600);        //sets up baud rate
+    hm10.attach(&bluetoothIRS, SerialBase::RxIrq);  //sets up state change IRS
+
+    //sensor variable declarations
+    sensors sens1(PB_0);        //named from left to right
+    sensors sens2(PA_2);
+    sensors sens3(PA_1);
+    sensors sens4(PA_0);
+    sensors sens5(PC_1);
+    sensors backSens(PC_0);
+
+    int sensorConstant = 0;     //not actually a constant but more of a switch
+    int group1Constant = 0;
+    int group2Constant = 1;
+
+    while (true) {
+
+         
+    //main state code insert here
+
+        switch (state) {
+            case startUp:
+                if (state != lastState){
+                    enable = 0;
+                    pwmRight.write(1.0f);       //turns them off
+                    pwmLeft.write(1.0f);
+                    lcd.cls();
+                    lcd.locate(0,0);
+                    lcd.printf("Start Screen");
+                    
+                }
+                lastState = startUp;
+                break;
+
+            case encoderRead:
+                directionLeft = 1;
+                directionRight = 1;
+                rightEncoder.speedController();
+                leftEncoder.speedController();
+                pwmRight.write(rightEncoder.pwmDutyRead());
+                pwmLeft.write(leftEncoder.pwmDutyRead());
+                enable = 1;
+                lcd.cls();
+                lcd.locate(0,0);
+                lcd.printf("Left Encoder Value %.2f", leftEncoder.velocityRead());
+                lcd.locate(0,16);
+                lcd.printf("Right Encoder Value %.2f", rightEncoder.velocityRead());
+                wait_us(100000);
+
+                break;
+
+            case sensorReading:
+
+                if(sensorConstant == 0){
+                    sens1.readOnVoltage();
+                    sens2.readOffVoltage();
+                    sens3.readOnVoltage();
+                    sens4.readOffVoltage();
+                    sens5.readOnVoltage();
+                }
+                else{
+                    sens1.readOffVoltage();
+                    sens2.readOnVoltage();
+                    sens3.readOffVoltage();
+                    sens4.readOnVoltage();
+                    sens5.readOffVoltage();
+                }
+                pwmRight = 1.0f;
+                pwmLeft = 1.0f;
+
+                sens1.colourCheck();
+                sens5.colourCheck();
+
+                lcd.cls();
+                lcd.locate(0,0);
+                lcd.printf("Sensor 1 Reading: %.2f", sens1.readNRVoltage());
+                lcd.locate(0,10);
+                lcd.printf("Sensor 5 Reading: %.2f", sens5.readNRVoltage());
+                lcd.locate(0,20);
+                lcd.printf("Sensor 1 is %c, Sensor 5 is %c", sens1.colourRead(),sens5.colourRead());
+
+                sensorConstant = !sensorConstant;
+
+                group1Constant = !group1Constant;      //switches the enables for groups
+                group2Constant = !group2Constant;
+
+                group1Enable.write(group1Constant);
+                group2Enable.write(group2Constant);
+
+                wait_us(100000);
+
+                case lineController:
+            
+            }
+        }
+
+
+    }
