@@ -124,7 +124,7 @@ float dt = 0.05f;
 float derror_pos;
 float preverror_pos;
 float Kd = 0.02f;
-float Kp;
+float Kp = 0.2f;
 float pwmLeft_val;
 float pwmRight_val;
 float ltarget_vel;
@@ -220,7 +220,6 @@ void turn_right_90() {
     pwmLeft.period(0.0002f);
     pwmRight.period(0.0002f);
 
-
     while (leftEncoder.countRead() < right_turn_90_counts) {
         pwmLeft.write(0.81f);
         pwmRight.write(0.8f);
@@ -291,6 +290,17 @@ void bluetoothIRS(){
     sensors backSens(PC_0);
 
 void controller () {
+    sens1.readOnVoltage();
+    sens1.readOffVoltage();
+    sens2.readOnVoltage();
+    sens2.readOffVoltage();
+    sens3.readOnVoltage();
+    sens3.readOffVoltage();
+    sens4.readOnVoltage();
+    sens4.readOffVoltage();
+    sens5.readOnVoltage();
+    sens5.readOffVoltage();
+
     float s1 = sens1.readNRVoltage();
     float s2 = sens2.readNRVoltage();
     float s3 = sens3.readNRVoltage();
@@ -298,10 +308,16 @@ void controller () {
     float s5 = sens5.readNRVoltage();
 
     //float error_vel = speed - leftEncoder.velocityRead();
-    float error_pos = (-2*s1) + (-1*s2) + (0*s3) + (1*s4) + (2*s5);
-    if(error_pos > 0.001f){
-    error_pos = ((-2.0f*s1) + (-1.0f*s2) + (0.0f*s3) + (1.0f*s4) + (2.0f*s5)) / (s1+s2+s3+s4+s5);
+    float error_pos = (-2*s1) + (-1*s2) + (0*s3) + (1*s4) + (2*s5); //weightage for the error, position of buggy relative to track.
+    float sum = (s1+s2+s3+s4+s5);
+
+    if(sum > 0.001f){ //used because if the sensor values detect nothing, sum is 0 making error_pos undefined.
+    error_pos = ((-2.0f*s1) + (-1.0f*s2) + (0.0f*s3) + (1.0f*s4) + (2.0f*s5)) / sum; //used to negate the importance of brightness.
 }
+else{
+    error_pos = 0.0f; // there is no line
+}
+
     float correction = Kp*error_pos; //this is for the proportional of the position.
 
     derror_pos = error_pos - preverror_pos;
@@ -309,7 +325,7 @@ void controller () {
 
     float steering = correction + Kd*d_pos;
 
-    ltarget_vel = 0.3 - steering; //slow the left
+    ltarget_vel = 0.3 - steering; //slow the left //adjust the base speed.
     rtarget_vel = 0.3 + steering; //make right faster
 
     error_vel_left = ltarget_vel - leftEncoder.velocityRead();
@@ -328,7 +344,7 @@ void controller () {
     float leftControl = Kp_vel * error_vel_left + Ki_vel * integral_left;
     float rightControl = Kp_vel * error_vel_right + Ki_vel * integral_right;
 
-    float pwmLeft_val = 0.75 + leftControl;
+    float pwmLeft_val = 0.75 + leftControl; //adjust the pwm accordingly.
     float pwmRight_val = 0.75 + rightControl;
 
     if(pwmLeft_val > 0.95f) pwmLeft_val = 0.95f; //for clamping the speed between certain values.
@@ -441,6 +457,8 @@ int main()
                 group2Enable.write(group2Constant);
 
                 wait_us(100000);
+
+                break;
             
             case controlstate:
                 lcd.cls();
