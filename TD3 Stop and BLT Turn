@@ -413,6 +413,8 @@ void controller () {
     pwmLeft.write(pwmLeft_val);
     pwmRight.write(pwmRight_val);
 
+    enable = 1;
+
     //pwmLeft.write(pwmValue);
     preverror_pos = error_pos;
 
