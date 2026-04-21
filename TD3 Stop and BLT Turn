@@ -177,7 +177,7 @@ int stopCountCheck = 0;
 
 void updateYaw(){       //call by ticker so we can update it
     int data[3];
-    mpu.getGyroRaw(data); \
+    mpu.getGyroRaw(data); 
     zGyro = data[2]/131.0f;    //converts raw value 
     yaw += zGyro * imuTime;
 }
@@ -356,10 +356,10 @@ void controller () {
     //check to see if a stop needs to occur
 
     if(
-        s1<=(s2+stopTolerance)&&s2>=(s2-stopTolerance)&&
-        s1<=(s3+stopTolerance)&&s3>=(s3-stopTolerance)&&
-        s1<=(s4+stopTolerance)&&s4>=(s4-stopTolerance)&&
-        s1<=(s5+stopTolerance)&&s5>=(s5-stopTolerance)){        //idea to increase counts to x amount and if reached then stop the buggy
+        s1<=(s2+stopTolerance)&&s1>=(s2-stopTolerance)&&
+        s1<=(s3+stopTolerance)&&s1>=(s3-stopTolerance)&&
+        s1<=(s4+stopTolerance)&&s1>=(s4-stopTolerance)&&
+        s1<=(s5+stopTolerance)&&s1>=(s5-stopTolerance)){        //idea to increase counts to x amount and if reached then stop the buggy
 
         stopCountCheck += 1;
         if (stopCountCheck == 5){
@@ -529,6 +529,8 @@ int main()
                 lcd.cls();
                 lcd.locate(0,0);
                 lcd.printf("Pre Control State");
+
+                break;
             
             case controlState:
                 lcd.cls();
