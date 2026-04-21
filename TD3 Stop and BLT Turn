@@ -125,7 +125,7 @@ float dt = 0.05f;
 float derror_pos;
 float preverror_pos;
 float Kd = 0.02f;
-float Kp;
+float Kp = 0.02f;
 float pwmLeft_val;
 float pwmRight_val;
 float ltarget_vel;
@@ -404,8 +404,8 @@ void controller () {
     float leftControl = Kp_vel * error_vel_left + Ki_vel * integral_left;
     float rightControl = Kp_vel * error_vel_right + Ki_vel * integral_right;
 
-    float pwmLeft_val = 0.75 + leftControl;
-    float pwmRight_val = 0.75 + rightControl;
+    float pwmLeft_val = 0.62 + leftControl;
+    float pwmRight_val = 0.62 + rightControl;
 
     if(pwmLeft_val > 0.95f) pwmLeft_val = 0.95f; //for clamping the speed between certain values.
     if(pwmLeft_val < 0.55f) pwmLeft_val = 0.55f;
