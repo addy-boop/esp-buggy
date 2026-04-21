@@ -143,11 +143,11 @@ float lastS4 = 0.0f;
 float lastS5 = 0.0f;
 
 //Bluetooth Variables
-Serial hm10(PA_11, PA_12);
+Serial hm10(PA_11,PA_12);
 char s;
 DigitalOut LED(D5);
 
-typedef enum{startUp, encoderRead, sensorReading, controlState}programState;
+typedef enum{startUp, encoderRead, sensorReading, preControl, controlState}programState;
 programState state;
 programState lastState;
 
@@ -324,6 +324,9 @@ void bluetoothIRS(){
                     state = sensorReading;
                 break;
                 case(sensorReading):
+                    state = preControl;
+                break;
+                case(preControl):
                     state = controlState;
                 break;
                 case(controlState):
@@ -412,7 +415,6 @@ void controller () {
 
     pwmLeft.write(pwmLeft_val);
     pwmRight.write(pwmRight_val);
-
     enable = 1;
 
     //pwmLeft.write(pwmValue);
@@ -519,7 +521,14 @@ int main()
 
                 wait_us(100000);
 
+                lastState = sensorReading;
+
                 break;
+            
+            case preControl:
+                lcd.cls();
+                lcd.locate(0,0);
+                lcd.printf("Pre Control State");
             
             case controlState:
                 lcd.cls();
