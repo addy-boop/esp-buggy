@@ -302,7 +302,7 @@ void bluetoothIRS(){
             imuTicker.attach(&updateYaw, imuTime);  //and an if in main loop
 
             directionRight = 0;
-            directionLeft = 0;
+            directionLeft = 1;
             enable = 1;
 
             while (!turnCheck180()){
