@@ -354,11 +354,11 @@ void controller () {
 
     //check to see if a stop needs to occur
 
-    if(s1<=(lastS1+stopTolerance)&&s1>=(lastS1-stopTolerance)&&
-        s2<=(lastS2+stopTolerance)&&s2>=(lastS2-stopTolerance)&&
-        s3<=(lastS3+stopTolerance)&&s3>=(lastS3-stopTolerance)&&
-        s4<=(lastS4+stopTolerance)&&s4>=(lastS4-stopTolerance)&&
-        s5<=(lastS5+stopTolerance)&&s5>=(lastS5-stopTolerance)){        //idea to increase counts to x amount and if reached then stop the buggy
+    if(
+        s1<=(s2+stopTolerance)&&s2>=(s2-stopTolerance)&&
+        s1<=(s3+stopTolerance)&&s3>=(s3-stopTolerance)&&
+        s1<=(s4+stopTolerance)&&s4>=(s4-stopTolerance)&&
+        s1<=(s5+stopTolerance)&&s5>=(s5-stopTolerance)){        //idea to increase counts to x amount and if reached then stop the buggy
 
         stopCountCheck += 1;
         if (stopCountCheck == 5){
@@ -417,11 +417,6 @@ void controller () {
 
     //pwmLeft.write(pwmValue);
     preverror_pos = error_pos;
-    lastS1 = s1;
-    lastS2 = s2;
-    lastS3 = s3;
-    lastS4 = s4;
-    lastS5 = s5;
 
 }
 
