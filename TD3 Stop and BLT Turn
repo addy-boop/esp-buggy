@@ -79,7 +79,7 @@ class sensors: public AnalogIn{
     }
 
     float readNRVoltage(){
-        nRVoltage = -1*(onVoltage - offVoltage);
+        nRVoltage = (onVoltage - offVoltage);
         return (nRVoltage);
     }
 
