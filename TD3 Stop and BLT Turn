@@ -530,6 +530,8 @@ int main()
                 lcd.locate(0,0);
                 lcd.printf("Pre Control State");
 
+                lastState = preControl;
+                wait_ms(100000);
                 break;
             
             case controlState:
@@ -537,7 +539,8 @@ int main()
                 lcd.locate(0,0);
                 lcd.printf("Start moving");
                 controller();
-
+                wait_ms(100);
+                lastState = controlState;
                 break;
 
             }
