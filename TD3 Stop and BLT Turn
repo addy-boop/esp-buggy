@@ -33,6 +33,9 @@ public:
 
     
     float velocityRead(){
+        if(rotationTime <= 0.0001f){
+            return velocity;
+        }
         velocity = ((3.14159f * (79.0f/1000.0f))/rotationTime);
         return velocity;
     }
@@ -121,11 +124,11 @@ int k = 5;
 float new_vel;
 float Ki = 0.5f;          // start small!
 float integral = 0.0f;
-float dt = 0.05f;
+float dt = 0.01f;
 float derror_pos;
 float preverror_pos;
 float Kd = 0.02f;
-float Kp = 0.02f;
+float Kp = 0.18f;
 float pwmLeft_val;
 float pwmRight_val;
 float ltarget_vel;
@@ -142,14 +145,19 @@ float lastS3 = 0.0f;
 float lastS4 = 0.0f;
 float lastS5 = 0.0f;
 
+//Sensor variables
+volatile int sensorConstant = 0;
+volatile int group1Constant = 0;
+volatile int group2Constant = 1;
+
 //Bluetooth Variables
 Serial hm10(PA_11,PA_12);
 char s;
 DigitalOut LED(D5);
 
 typedef enum{startUp, encoderRead, sensorReading, preControl, controlState}programState;
-programState state;
-programState lastState;
+volatile programState state;
+volatile programState lastState;
 
 Timeout debounceTimer;
 const float debounceTime = 0.10f;       //100ms
@@ -161,9 +169,9 @@ DigitalOut group2Enable(PB_2);
 //6DOF IMU Variables 
 
 MPU6050 mpu(PB_9,PB_8);
-float yaw = 0.0f;
-float zGyro = 0.0f;
-float imuTime = 0.01f;
+volatile float yaw = 0.0f;
+volatile float zGyro = 0.0f;
+volatile float imuTime = 0.01f;
 
 Ticker imuTicker;
 
@@ -177,15 +185,9 @@ int stopCountCheck = 0;
 
 //imu Functions
 
-void updateYaw(){       //call by ticker so we can update it
-    float data[3];
-    mpu.getGyro(data); 
-    zGyro = float(data[2])*(180.0f/3.1415927f);    //converts value from rad/s  
-    yaw += zGyro * imuTime;
-}
 
 bool turnCheck180(){
-    return (yaw >= 175.0f || yaw <= -175.0f);       //can change tolerance through testing
+    return (yaw >= 71.5 || yaw <= -71.5f);       //can change tolerance through testing
 }
 
 
@@ -203,7 +205,7 @@ void nextState(){
 
     switch(state){
         case(startUp):
-            state = encoderRead;
+            state = controlState;
         break;
         case(encoderRead):
             state = sensorReading;
@@ -321,7 +323,7 @@ void bluetoothIRS(){
         if(s == 'A'){
             switch(state){
                 case(startUp):
-                    state = encoderRead;
+                    state = preControl;
                 break;
                 case(encoderRead):
                     state = sensorReading;
@@ -348,6 +350,30 @@ void bluetoothIRS(){
     sensors backSens(PC_0);
 
 void controller () {
+    directionLeft = 1;
+    directionRight = 1;
+
+    //group 1
+
+    group1Enable.write(1);
+    group2Enable.write(0);
+    wait_us(200);
+    sens1.readOnVoltage();
+    sens2.readOffVoltage();
+    sens3.readOnVoltage();
+    sens4.readOffVoltage();
+    sens5.readOnVoltage();
+    
+    //group 2
+    group1Enable.write(0);
+    group2Enable.write(1);
+    wait_us(200);
+    sens1.readOffVoltage();
+    sens2.readOnVoltage();
+    sens3.readOffVoltage();
+    sens4.readOnVoltage();
+    sens5.readOffVoltage();
+
     float s1 = sens1.readNRVoltage();
     float s2 = sens2.readNRVoltage();
     float s3 = sens3.readNRVoltage();
@@ -358,7 +384,7 @@ void controller () {
 
     //check to see if a stop needs to occur
 
-    if(
+   /* if(
         s1<=(s2+stopTolerance)&&s1>=(s2-stopTolerance)&&
         s1<=(s3+stopTolerance)&&s1>=(s3-stopTolerance)&&
         s1<=(s4+stopTolerance)&&s1>=(s4-stopTolerance)&&
@@ -373,20 +399,31 @@ void controller () {
         }
     else {
         stopCountCheck = 0;
-    }
+    }*/
 
 
     //float error_vel = speed - leftEncoder.velocityRead();
-    float error_pos = (-2*s1) + (-1*s2) + (0*s3) + (1*s4) + (2*s5);
-    if(error_pos > 0.001f){
-    error_pos = ((-2.0f*s1) + (-1.0f*s2) + (0.0f*s3) + (1.0f*s4) + (2.0f*s5)) / (s1+s2+s3+s4+s5);
-}
+    float error_pos;
+
+    float sum = s1+s2+s3+s4+s5;
+    if(sum >0.2f){
+        error_pos = ((-2.0f*s1) + (-1.0f*s2) + (0.0f*s3) + (1.0f*s4) + (2.0f*s5)) / (s1+s2+s3+s4+s5);
+    
+    }else{
+        error_pos = 0.0f;
+    }
     float correction = Kp*error_pos; //this is for the proportional of the position.
 
     derror_pos = error_pos - preverror_pos;
     float d_pos = derror_pos/dt;
 
     float steering = correction + Kd*d_pos;
+    if (steering >0.2f){
+        steering = 0.2f;
+    }
+    else if (steering < -0.2f) {
+        steering = -0.2f;
+    }
 
     ltarget_vel = 0.3 - steering; //slow the left
     rtarget_vel = 0.3 + steering; //make right faster
@@ -445,35 +482,42 @@ int main()
     hm10.attach(&bluetoothIRS, SerialBase::RxIrq);  //sets up state change IRS
 
     //sensor variable declarations
-
-    int sensorConstant = 0;
-    int group1Constant = 0;
-    int group2Constant = 1;
     
     //imu
     mpu.setSleepMode(false);
+    Timer imuTimer;
+
 
     while (true) {
     //main state code insert here
 
         if(do180Turn == true){
-            lcd.cls();
-            lcd.locate(0,0);
-            lcd.printf("%.2f", yaw);
 
             yaw = 0.0f;                               
-            imuTicker.attach(&updateYaw, imuTime);  
 
-            directionRight = 0;
-            directionLeft = 1;
+            directionRight = 1;
+            directionLeft = 0;
             enable = 1;
 
+            imuTimer.start();
+            int printCount = 0;
+
             while (!turnCheck180()){
-                pwmLeft.write(0.81f);           
-                pwmRight.write(0.81f);
+
+
+                pwmLeft.write(0.6f);           
+                pwmRight.write(0.6f);
+
+
+                float data[3];          //updateYaw()
+                mpu.getGyro(data); 
+                zGyro = data[2];    //converts value from rad/s  
+                yaw += (zGyro * 0.01f);
+
+                wait_ms(10);
+
             }
             stop_motors();
-            imuTicker.detach();
             do180Turn = false;
             }
 
@@ -492,80 +536,25 @@ int main()
                 lastState = startUp;
                 break;
 
-            case encoderRead:
-                directionLeft = 1;
-                directionRight = 1;
-                pwmRight.write(0.8f);
-                pwmLeft.write(0.6f);
-                enable = 1;
-                lcd.cls();
-                lcd.locate(0,0);
-                lcd.printf("Left Encoder Value %.2f", leftEncoder.velocityRead());
-                lcd.locate(0,16);
-                lcd.printf("Right Encoder Value %.2f", rightEncoder.velocityRead());
-                wait_us(100000);
-
-                break;
-
-            case sensorReading:
-
-                if(sensorConstant == 0){
-                    sens1.readOnVoltage();
-                    sens2.readOffVoltage();
-                    sens3.readOnVoltage();
-                    sens4.readOffVoltage();
-                    sens5.readOnVoltage();
-                }
-                else{
-                    sens1.readOffVoltage();
-                    sens2.readOnVoltage();
-                    sens3.readOffVoltage();
-                    sens4.readOnVoltage();
-                    sens5.readOffVoltage();
-                }
-                pwmRight = 1.0f;
-                pwmLeft = 1.0f;
-
-                sens1.colourCheck();
-                sens5.colourCheck();
-
-                lcd.cls();
-                lcd.locate(0,0);
-                lcd.printf("Sensor 1 Reading: %.2f", sens1.readNRVoltage());
-                lcd.locate(0,10);
-                lcd.printf("Sensor 5 Reading: %.2f", sens5.readNRVoltage());
-                lcd.locate(0,20);
-                lcd.printf("Sensor 1 is %c, Sensor 5 is %c", sens1.colourRead(),sens5.colourRead());
-
-                sensorConstant = !sensorConstant;
-
-                group1Constant = !group1Constant;      //switches the enables for groups
-                group2Constant = !group2Constant;
-
-                group1Enable.write(group1Constant);
-                group2Enable.write(group2Constant);
-
-                wait_us(100000);
-
-                lastState = sensorReading;
-
-                break;
             
             case preControl:
-                lcd.cls();
-                lcd.locate(0,0);
-                lcd.printf("Pre Control State");
-
+                if(state != lastState){
+                    lcd.cls();
+                    lcd.locate(0,0);
+                    lcd.printf("Pre Control State");
+                    pwmRight.write(0.62f);
+                    pwmLeft.write(0.62f);
+                }
                 lastState = preControl;
-                wait_ms(100000);
                 break;
             
             case controlState:
+                controller();
                 lcd.cls();
                 lcd.locate(0,0);
-                lcd.printf("Start moving");
-                controller();
-                wait_ms(100);
+                lcd.printf("pwmleft = %.2f",leftEncoder.velocityRead());
+                lcd.printf("pwmright = %.2f", rightEncoder.velocityRead());
+                wait_ms(10);
                 lastState = controlState;
                 break;
 
