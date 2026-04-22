@@ -160,12 +160,14 @@ DigitalOut group2Enable(PB_2);
 
 //6DOF IMU Variables 
 
-MPU6050 mpu(PB_3,PB_10);
+MPU6050 mpu(PB_9,PB_8);
 float yaw = 0.0f;
 float zGyro = 0.0f;
 float imuTime = 0.01f;
 
 Ticker imuTicker;
+
+bool do180Turn = false;
 
 //stop check variables
 
@@ -176,9 +178,9 @@ int stopCountCheck = 0;
 //imu Functions
 
 void updateYaw(){       //call by ticker so we can update it
-    int data[3];
-    mpu.getGyroRaw(data); 
-    zGyro = data[2]/131.0f;    //converts raw value 
+    float data[3];
+    mpu.getGyro(data); 
+    zGyro = float(data[2])*(180.0f/3.1415927f);    //converts value from rad/s  
     yaw += zGyro * imuTime;
 }
 
@@ -297,8 +299,9 @@ void enableStateSwitch(){
 void bluetoothIRS(){
     if(hm10.readable()){
         s = hm10.getc(); // s =hm10.getc();
-        if (s == 'T'){                              //need to test if works
-            yaw = 0.0f;                             //if not will set a flag do180Turn = true;  
+        if (s == 'T'){    
+            do180Turn = true;                          //need to test if works
+        /*    yaw = 0.0f;                             //if not will set a flag do180Turn = true;  
             imuTicker.attach(&updateYaw, imuTime);  //and an if in main loop
 
             directionRight = 0;
@@ -310,7 +313,7 @@ void bluetoothIRS(){
                 pwmRight.write(0.81f);
             }
             stop_motors();
-            imuTicker.detach();
+            imuTicker.detach(); */
         }
         if (s == 'B'){
             LED = !LED;
@@ -362,7 +365,7 @@ void controller () {
         s1<=(s5+stopTolerance)&&s1>=(s5-stopTolerance)){        //idea to increase counts to x amount and if reached then stop the buggy
 
         stopCountCheck += 1;
-        if (stopCountCheck == 5){
+        if (stopCountCheck == 10){
             stop_motors();
             state = startUp;
             return;
@@ -448,9 +451,32 @@ int main()
     int group2Constant = 1;
     
     //imu
-    
+    mpu.setSleepMode(false);
+
     while (true) {
     //main state code insert here
+
+        if(do180Turn == true){
+            lcd.cls();
+            lcd.locate(0,0);
+            lcd.printf("%.2f", yaw);
+
+            yaw = 0.0f;                               
+            imuTicker.attach(&updateYaw, imuTime);  
+
+            directionRight = 0;
+            directionLeft = 1;
+            enable = 1;
+
+            while (!turnCheck180()){
+                pwmLeft.write(0.81f);           
+                pwmRight.write(0.81f);
+            }
+            stop_motors();
+            imuTicker.detach();
+            do180Turn = false;
+            }
+
 
         switch (state) {
             case startUp:
