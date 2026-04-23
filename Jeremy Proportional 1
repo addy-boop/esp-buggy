@@ -1,0 +1,165 @@
+#include "mbed.h"
+#include "C12832.h"
+
+// --- Classes ---
+
+class encoderCount {
+private:
+    InterruptIn countInterrupt;
+    volatile int count;
+    volatile float rotationTime, velocity;
+    Timer countTimer;
+
+public:
+    encoderCount(PinName pin) : countInterrupt(pin), count(0), rotationTime(0.0f), velocity(0) {
+        countInterrupt.rise(callback(this, &encoderCount::increment));
+    }
+
+    void increment() {
+        count++;
+        if (count == 1) {
+            countTimer.reset();
+            countTimer.start();
+        }
+        if (count == 255) {
+            countTimer.stop();
+            rotationTime = countTimer.read();
+            count = 0;
+        }
+    }
+
+    float velocityRead() {
+        if (rotationTime <= 0.0001f) return velocity;
+        velocity = ((3.14159f * (79.0f / 1000.0f)) / rotationTime);
+        return velocity;
+    }
+};
+
+class sensors : public AnalogIn {
+private:
+    float onVoltage, offVoltage, nRVoltage;
+
+public:
+    sensors(PinName pin) : AnalogIn(pin), onVoltage(0.0f), offVoltage(0.0f), nRVoltage(0.0f) {}
+
+    void readOnVoltage() { onVoltage = read() * 2.0f; }
+    void readOffVoltage() { offVoltage = read() * 2.0f; }
+
+    float readNRVoltage() {
+        nRVoltage = (onVoltage - offVoltage);
+        return nRVoltage;
+    }
+};
+
+// --- Peripherals ---
+
+C12832 lcd(D11, D13, D12, D7, D10);
+PwmOut pwmRight(PB_7);
+PwmOut pwmLeft(PB_1);
+DigitalOut enable(PD_2);
+DigitalOut directionLeft(PB_14);
+DigitalOut directionRight(PC_12);
+DigitalOut leftPol(PB_15);
+DigitalOut rightPol(PC_10);
+DigitalOut group1Enable(PC_11);
+DigitalOut group2Enable(PB_2);
+
+encoderCount leftEncoder(PC_6);
+encoderCount rightEncoder(PC_8);
+
+// PID & Control Constants
+float Kp = 0.12f;       // proportional gain - start low and increase
+float base_pwm = 0.75f; // base speed
+
+// Sensor Instances
+sensors sens1(PC_5); sensors sens2(PC_4); sensors sens3(PA_4); 
+sensors sens4(PB_0); sensors sens5(PC_1);
+
+// --- Functions ---
+
+void stop_motors() {
+    pwmLeft.write(1.0f);
+    pwmRight.write(1.0f);
+    enable = 0;
+}
+
+void controller() {
+
+    // 1. Read Sensors (Multiplexing)
+    group1Enable = 1; group2Enable = 0;
+    wait_us(200);
+    sens1.readOnVoltage(); sens3.readOnVoltage(); sens5.readOnVoltage();
+    sens2.readOffVoltage(); sens4.readOffVoltage();
+
+    group1Enable = 0; group2Enable = 1;
+    wait_us(200);
+    sens1.readOffVoltage(); sens3.readOffVoltage(); sens5.readOffVoltage();
+    sens2.readOnVoltage(); sens4.readOnVoltage();
+
+    float s1 = sens1.readNRVoltage();
+    float s2 = sens2.readNRVoltage();
+    float s3 = sens3.readNRVoltage();
+    float s4 = sens4.readNRVoltage();
+    float s5 = sens5.readNRVoltage();
+
+    // 2. Calculate Weighted Error
+    // s1=-2 (Left), s2=-1, s3=0 (Center), s4=1, s5=2 (Right)
+    float error = 0.0f;
+    float sum = s1 + s2 + s3 + s4 + s5;
+
+    if (sum > 0.05f) { 
+        error = ((-2.0f * s1) + (-1.0f * s2) + (0.0f * s3) + (1.0f * s4) + (2.0f * s5)) / sum;
+    } else {
+        error = 0.0f; 
+    }
+
+    // 3. Proportional Steering
+    float steering = Kp * error;
+
+    // 4. Apply Steering to Motors
+    // lower PWM value = faster speed.
+    // if error is negative (line is on Left), we want to turn Left.
+    // to turn Left: Left wheel must get slower (PWM increases), Right wheel gets faster (PWM decreases).
+    float pwmLeft_val = base_pwm - steering; 
+    float pwmRight_val = base_pwm + steering;
+
+    // 5. Clamping (Safety Limits)
+    if (pwmLeft_val > 0.95f) pwmLeft_val = 0.95f; 
+    else if (pwmLeft_val < 0.50f) pwmLeft_val = 0.50f;
+    
+    if (pwmRight_val > 0.95f) pwmRight_val = 0.95f; 
+    else if (pwmRight_val < 0.50f) pwmRight_val = 0.50f;
+
+    pwmLeft.write(pwmLeft_val);
+    pwmRight.write(pwmRight_val);
+}
+
+int main() {
+    // Initial Setup
+    rightPol = 0; leftPol = 0;
+    stop_motors();
+    
+    // 3-Second Startup Countdown
+    lcd.cls();
+    for(int i = 3; i > 0; i--) {
+        lcd.locate(0,0);
+        lcd.printf("Starting in %d...", i);
+        wait(1.0); 
+    }
+    
+    lcd.cls();
+    lcd.locate(0,0);
+    lcd.printf("Buggy Active");
+    directionLeft = 1; directionRight = 1;
+    enable = 1;
+
+    while (true) {
+        controller();
+        
+        // Update LCD with real-time velocity
+        lcd.locate(0,10);
+        lcd.printf("L:%.2f R:%.2f", leftEncoder.velocityRead(), rightEncoder.velocityRead());
+        
+        wait_ms(10); // Loop timing
+    }
+}
