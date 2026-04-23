@@ -318,6 +318,11 @@ void bluetoothIRS(){
     sensors backSens(PC_0);
 
 void controller () {
+    const float basePwm = 0.62f;
+    const float minPwm = 0.40f;
+    const float maxPwm = 0.95f;
+    const float maxSteering = 0.7f;
+
     directionLeft = 1;
     directionRight = 1;
 
@@ -386,15 +391,15 @@ void controller () {
     float d_pos = derror_pos/dt;
 
     float steering = correction + Kd*d_pos;
-    if (steering >0.7f){
-        steering = 0.7f;
+    if (steering > maxSteering){
+        steering = maxSteering;
     }
-    else if (steering < -0.7f) {
-        steering = -0.7f;
+    else if (steering < -maxSteering) {
+        steering = maxSteering
     }
 
-    ltarget_vel = 0.2f - steering; //slow the left
-    rtarget_vel = 0.2f + steering; //make right faster
+    ltarget_vel = 0.8f + steering; //slow the left
+    rtarget_vel = 0.8f - steering; //make right faster
 
     error_vel_left = ltarget_vel - leftEncoder.velocityRead();
     error_vel_right = rtarget_vel - rightEncoder.velocityRead();
@@ -412,14 +417,14 @@ void controller () {
     float leftControl = Kp_vel * error_vel_left + Ki_vel * integral_left;
     float rightControl = Kp_vel * error_vel_right + Ki_vel * integral_right;
 
-    float pwmLeft_val = 0.62 + leftControl;
-    float pwmRight_val = 0.62 + rightControl;
+    float pwmLeft_val = basePwm - leftControl;
+    float pwmRight_val = basePwm - rightControl;
 
-    if(pwmLeft_val > 0.95f) pwmLeft_val = 0.95f; //for clamping the speed between certain values.
-    if(pwmLeft_val < 0.55f) pwmLeft_val = 0.55f;
+    if(pwmLeft_val > maxPwm) pwmLeft_val = maxPwm; //for clamping the speed between certain values.
+    if(pwmLeft_val < minPwm) pwmLeft_val = minPwm;
 
-    if(pwmRight_val > 0.95f) pwmRight_val = 0.95f;
-    if(pwmRight_val < 0.55f) pwmRight_val = 0.55f;
+    if(pwmRight_val > maxPwm) pwmRight_val = maxPwm;
+    if(pwmRight_val < minPwm) pwmRight_val = minPwm;
 
     pwmLeft.write(pwmLeft_val);
     pwmRight.write(pwmRight_val);
