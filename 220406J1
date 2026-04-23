@@ -122,14 +122,13 @@ encoderCount rightEncoder(PC_8);
 float speed = 0.5;
 int k = 5;
 float new_vel;
-float Ki = 0.2f;          // start small!
+float Ki = 0.05f;          // start small!
 float integral = 0.0f;
 float dt = 0.01f;
 float derror_pos;
 float preverror_pos;
 float Kd = 0.05f;
-float Kp = 0.3f;
-float pwmLeft_val;
+float Kp = 0.05f;
 float pwmRight_val;
 float ltarget_vel;
 float rtarget_vel;
@@ -137,7 +136,7 @@ float integral_left;
 float integral_right;
 float error_vel_left;
 float error_vel_right;
-float Kp_vel = 0.15;
+float Kp_vel = 0.1;
 float Ki_vel = 0.05;
 float lastS1 = 0.0f;
 float lastS2 = 0.0f;
@@ -318,10 +317,10 @@ void bluetoothIRS(){
     sensors backSens(PC_0);
 
 void controller () {
-    const float basePwm = 0.62f;
+    const float basePwm = 0.75f;
     const float minPwm = 0.40f;
     const float maxPwm = 0.95f;
-    const float maxSteering = 0.7f;
+    const float maxSteering = 0.35f;
 
     directionLeft = 1;
     directionRight = 1;
@@ -395,11 +394,11 @@ void controller () {
         steering = maxSteering;
     }
     else if (steering < -maxSteering) {
-        steering = maxSteering
+        steering = -maxSteering;
     }
 
-    ltarget_vel = 0.8f + steering; //slow the left
-    rtarget_vel = 0.8f - steering; //make right faster
+    ltarget_vel = 0.4f + steering; //slow the left
+    rtarget_vel = 0.4f - steering; //make right faster
 
     error_vel_left = ltarget_vel - leftEncoder.velocityRead();
     error_vel_right = rtarget_vel - rightEncoder.velocityRead();
@@ -522,10 +521,6 @@ int main()
             
             case controlState:
                 controller();
-                lcd.cls();
-                lcd.locate(0,0);
-                lcd.printf("left %.2f",leftEncoder.velocityRead());
-                lcd.printf("right %.2f", rightEncoder.velocityRead());
                 wait_ms(10);
                 lastState = controlState;
                 break;
