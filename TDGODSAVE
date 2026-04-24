@@ -23,7 +23,7 @@ public:
             countTimer.reset();
             countTimer.start();
         };
-        if(count == 255){
+        if(count == 150){
             countTimer.stop();
             rotationTime = (countTimer.read());
             count = 0;
