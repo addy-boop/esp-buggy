@@ -320,7 +320,7 @@ void controller () {
     const float basePwm = 0.7f;
     const float minPwm = 0.3f;
     const float maxPwm = 0.95f;
-    const float maxSteering = 0.39f;
+    const float maxSteering = 0.55f;
 
     directionLeft = 1;
     directionRight = 1;
@@ -414,8 +414,8 @@ void controller () {
         steering = -maxSteering;
     }
 
-    ltarget_vel = 0.4f + steering; //slow the left
-    rtarget_vel = 0.4f - steering; //make right faster
+    ltarget_vel = 0.6f + steering; //slow the left
+    rtarget_vel = 0.6f - steering; //make right faster
 
     error_vel_left = ltarget_vel - leftEncoder.velocityRead();
     error_vel_right = rtarget_vel - rightEncoder.velocityRead();
