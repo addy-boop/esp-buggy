@@ -127,7 +127,7 @@ float integral = 0.0f;
 float dt = 0.01f;
 float derror_pos;
 float preverror_pos;
-float Kd = 0.0f;
+float Kd = 0.000f;
 float Kp = 3.6f;
 float pwmRight_val;
 float ltarget_vel;
@@ -186,7 +186,7 @@ int stopCountCheck = 0;
 
 
 bool turnCheck180(){
-    return (yaw >= 71.5 || yaw <= -71.5f);       //can change tolerance through testing
+    return (yaw >= 69.5 || yaw <= -69.5f);       //can change tolerance through testing
 }
 
 
@@ -320,7 +320,7 @@ void controller () {
     const float basePwm = 0.7f;
     const float minPwm = 0.3f;
     const float maxPwm = 0.95f;
-    const float maxSteering = 0.55f;
+    const float maxSteering = 0.95f;
 
     directionLeft = 1;
     directionRight = 1;
@@ -380,7 +380,7 @@ void controller () {
        ){        //idea to increase counts to x amount and if reached then stop the buggy
 
         stopCountCheck += 1;
-        if (stopCountCheck == 450){
+        if (stopCountCheck == 100){
             stop_motors();
             state = startUp;
             return;
@@ -399,7 +399,7 @@ void controller () {
         error_pos = ((2.0f*s1) + (1.0f*s2) + (0.0f*s3) + (-1.0f*s4) + (-2.0f*s5)) / (sum);
     
     }else{
-        error_pos = 0.0f;
+        error_pos = 0;
     }
     float correction = Kp*error_pos; //this is for the proportional of the position.
 
@@ -414,8 +414,8 @@ void controller () {
         steering = -maxSteering;
     }
 
-    ltarget_vel = 0.6f + steering; //slow the left
-    rtarget_vel = 0.6f - steering; //make right faster
+    ltarget_vel = 1.0f + steering; //slow the left
+    rtarget_vel = 1.0f - steering; //make right faster
 
     error_vel_left = ltarget_vel - leftEncoder.velocityRead();
     error_vel_right = rtarget_vel - rightEncoder.velocityRead();
