@@ -379,11 +379,11 @@ void controller () {
 
     //check to see if a stop needs to occur
 
-    if(s1 < 0.3f &&
-       s2 < 0.3f &&
-       s3 < 0.3f &&
-       s4 < 0.3f &&
-       s5 < 0.4f 
+    if(s1 < 0.15f &&
+       s2 < 0.15f &&
+       s3 < 0.15f &&
+       s4 < 0.15f &&
+       s5 < 0.15f 
        ){        //idea to increase counts to x amount and if reached then stop the buggy
 
         stopCountCheck += 1;
@@ -422,8 +422,8 @@ void controller () {
         steering = -maxSteering;
     }
 
-    ltarget_vel = 0.4f + steering; //slow the left
-    rtarget_vel = 0.4f - steering; //make right faster
+    ltarget_vel = 0.4f - steering; //slow the left
+    rtarget_vel = 0.4f + steering; //make right faster
 
     error_vel_left = ltarget_vel - leftEncoder.velocityRead();
     error_vel_right = rtarget_vel - rightEncoder.velocityRead();
@@ -441,8 +441,8 @@ void controller () {
     float leftControl = Kp_vel * error_vel_left + Ki_vel * integral_left;
     float rightControl = Kp_vel * error_vel_right + Ki_vel * integral_right;
 
-    float pwmLeft_val = basePwm - leftControl;
-    float pwmRight_val = basePwm - rightControl;
+    float pwmLeft_val = basePwm + leftControl;
+    float pwmRight_val = basePwm + rightControl;
 
     if(pwmLeft_val > maxPwm) pwmLeft_val = maxPwm; //for clamping the speed between certain values.
     if(pwmLeft_val < minPwm) pwmLeft_val = minPwm;
