@@ -1,0 +1,549 @@
+#include "mbed.h"
+#include "C12832.h"
+#include "MPU6050.h"
+
+class encoderCount{
+
+private:
+    InterruptIn countInterrupt;
+    volatile int count;
+    volatile int overallCount;
+    volatile float rotationTime, velocity;
+    Timer countTimer;
+
+public:
+    encoderCount(PinName pin):
+    countInterrupt(pin), count(0), rotationTime(0.0f), overallCount(0), velocity(0){
+        countInterrupt.rise(callback(this, &encoderCount::increment));
+    }
+
+    void increment(){
+        count++;
+        if(count == 1){
+            countTimer.reset();
+            countTimer.start();
+        };
+        if(count == 150){
+            countTimer.stop();
+            rotationTime = (countTimer.read());
+            count = 0;
+            //overallCount++;
+        };
+    }
+
+    
+    float velocityRead(){
+        if(rotationTime <= 0.0001f){
+            return velocity;
+        }
+        velocity = ((3.14159f * (79.0f/1000.0f))/rotationTime);
+        return velocity;
+    }
+
+    int countRead(){
+        return count;
+    }
+
+    float countRotationTime(){
+        return rotationTime;
+    }
+
+    int totalRotations(){
+        return overallCount;
+    }
+
+    void countreset() {
+       count = 0;
+}
+ 
+
+};
+
+class sensors: public AnalogIn{
+
+    private:
+    float onVoltage, offVoltage, nRVoltage;
+    char colour;
+
+    public:
+    sensors(PinName pin):
+    AnalogIn(pin), onVoltage(0.0f), offVoltage(0.0f), nRVoltage(0.0f), colour('B'){
+    
+    }
+
+    void readOnVoltage(){
+        onVoltage = read();
+        onVoltage = 2*onVoltage;
+    }
+
+    void readOffVoltage(){
+        offVoltage = read();
+        offVoltage = 2*offVoltage;
+    }
+
+    float readNRVoltage(){
+        nRVoltage = (onVoltage - offVoltage);
+        return (nRVoltage);
+    }
+
+    void colourCheck(){
+        if(nRVoltage > 0.3f){       //0.1 needs to be average black emitter on value;
+            colour = 'W';
+        }
+        else{
+            colour = 'B';
+        }
+    }
+
+    char colourRead(){
+        return colour;
+    }
+};
+
+//global variables
+
+C12832 lcd(D11,D13,D12,D7,D10);
+
+PwmOut pwmRight(PB_7);      //sets pwm pin 
+PwmOut pwmLeft(PB_1);       //sets left wheel control through pwm
+InterruptIn up(A2);
+DigitalOut enable(PD_2);
+DigitalOut directionLeft(PB_14);
+DigitalOut directionRight(PC_12);
+DigitalOut leftPol(PB_15);
+DigitalOut rightPol(PC_10);
+int leftCounter = 0;
+int rightCounter = 0;
+int target_counts = 509;
+int right_turn_90_counts = 165;     //varations needed due to horizontal oscillations of gear box causing oscillatory wheel movement++++++++
+int left_turn_90_counts = 170;
+encoderCount leftEncoder(PC_6);
+encoderCount rightEncoder(PC_8);
+float speed = 0.5;
+int k = 5;
+float new_vel;
+float Ki = 0.1f;          // start small!
+float integral = 0.0f;
+float dt = 0.01f;
+float derror_pos;
+float preverror_pos;
+float Kd = 0.000f;
+float Kp = 3.6f;
+float pwmRight_val;
+float ltarget_vel;
+float rtarget_vel;
+float integral_left;
+float integral_right;
+float error_vel_left;
+float error_vel_right;
+float Kp_vel = 0.4;
+float Ki_vel = 0.05;
+float lastS1 = 0.0f;
+float lastS2 = 0.0f;
+float lastS3 = 0.0f;
+float lastS4 = 0.0f;
+float lastS5 = 0.0f;
+
+//Sensor variables
+volatile int sensorConstant = 0;
+volatile int group1Constant = 0;
+volatile int group2Constant = 1;
+
+//Bluetooth Variables
+Serial hm10(PA_11,PA_12);
+char s;
+DigitalOut LED(D5);
+
+typedef enum{startUp, encoderRead, sensorReading, preControl, controlState}programState;
+volatile programState state;
+volatile programState lastState;
+
+Timeout debounceTimer;
+const float debounceTime = 0.10f;       //100ms
+
+//sensors
+DigitalOut group1Enable(PC_11);
+DigitalOut group2Enable(PC_9);
+
+//6DOF IMU Variables 
+
+MPU6050 mpu(PB_9,PB_8);
+volatile float yaw = 0.0f;
+volatile float zGyro = 0.0f;
+volatile float imuTime = 0.01f;
+
+Ticker imuTicker;
+
+bool do180Turn = false;
+
+//stop check variables
+
+int stopCountCheck = 0;
+
+//Functions Start
+
+//imu Functions
+
+
+bool turnCheck180(){
+    return (yaw >= 69.5 || yaw <= -69.5f);       //can change tolerance through testing
+}
+
+
+//forward declaration of enableStateSwitch needed as call each other
+
+void enableStateSwitch();
+
+
+void stop_motors() {
+    pwmLeft.write(1.0f);
+    pwmRight.write(1.0f);
+    enable = 0;
+}
+
+void move_forward() {
+    // Reset counts before moving
+    leftEncoder.countreset();
+    rightEncoder.countreset();
+
+    // Set direction - both forward
+    directionRight = 1;
+    directionLeft = 1;
+
+    while (leftEncoder.countRead() < target_counts) {
+        pwmLeft.write(0.81f);
+        pwmRight.write(0.8f);
+        enable = 1;
+    }
+
+    stop_motors();
+    
+}
+void turn_right_90() {
+
+    leftEncoder.countreset();
+    rightEncoder.countreset();
+
+    directionRight = 0;  // both motors move forwards.
+    directionLeft = 1;
+
+    pwmLeft.period(0.0002f);
+    pwmRight.period(0.0002f);
+
+
+    while (leftEncoder.countRead() < right_turn_90_counts) {
+        pwmLeft.write(0.81f);
+        pwmRight.write(0.8f);
+        enable = 1;
+    }
+
+
+    stop_motors();
+}
+
+void turn_left_90() {
+
+    leftEncoder.countreset();
+    rightEncoder.countreset();
+
+    directionRight = 1;  // move forwards
+    directionLeft = 0;
+
+    pwmLeft.period(0.0002f);
+    pwmRight.period(0.0002f);
+
+    while (leftEncoder.countRead() < left_turn_90_counts) {
+      pwmLeft.write(0.81f);
+      pwmRight.write(0.8f);
+      enable = 1;
+     }
+
+    stop_motors();
+
+}
+
+
+//bluetooth state change function
+
+void bluetoothIRS(){
+    if(hm10.readable()){
+        s = hm10.getc(); // s =hm10.getc();
+        if (s == 'T'){    
+            do180Turn = true;                          //need to test if works
+        /*    yaw = 0.0f;                             //if not will set a flag do180Turn = true;  
+            imuTicker.attach(&updateYaw, imuTime);  //and an if in main loop
+
+            directionRight = 0;
+            directionLeft = 1;
+            enable = 1;
+
+            while (!turnCheck180()){
+                pwmLeft.write(0.81f);           
+                pwmRight.write(0.81f);
+            }
+            stop_motors();
+            imuTicker.detach(); */
+        }
+        if (s == 'B'){
+            LED = !LED;
+        }
+        if(s == 'A'){
+            switch(state){
+                case(startUp):
+                    state = preControl;
+                break;
+                case(encoderRead):
+                    state = sensorReading;
+                break;
+                case(sensorReading):
+                    state = preControl;
+                break;
+                case(preControl):
+                    state = controlState;
+                break;
+                case(controlState):
+                    state = startUp;
+                break;
+                }
+            }
+        }
+}
+
+    sensors sens1(PC_5);        //named from left to right
+    sensors sens2(PC_4);
+    sensors sens3(PA_4);
+    sensors sens4(PB_0);
+    sensors sens5(PC_1);
+    sensors backSens(PC_0);
+
+void controller () {
+    const float basePwm = 0.7f;
+    const float minPwm = 0.3f;
+    const float maxPwm = 0.95f;
+    const float maxSteering = 0.95f;
+
+    directionLeft = 1;
+    directionRight = 1;
+
+    static Timer controlTimer;
+    static bool firstRun = true;
+    if(firstRun){
+        controlTimer.start();
+        firstRun = false;
+        return;
+    }
+    float controlDt = controlTimer.read();
+    controlTimer.reset();
+    controlTimer.start();
+    if(controlDt <= 0.0f||controlDt > 0.5f){
+        return;
+    }
+
+
+    //group 1
+
+    group1Enable.write(1);
+    group2Enable.write(0);
+    wait_us(200);
+    sens1.readOnVoltage();
+    sens2.readOffVoltage();
+    sens3.readOnVoltage();
+    sens4.readOffVoltage();
+    sens5.readOnVoltage();
+    
+    //group 2
+    group1Enable.write(0);
+    group2Enable.write(1);
+    wait_us(200);
+    sens1.readOffVoltage();
+    sens2.readOnVoltage();
+    sens3.readOffVoltage();
+    sens4.readOnVoltage();
+    sens5.readOffVoltage();
+
+    float s1 = sens1.readNRVoltage();
+    float s2 = sens2.readNRVoltage();
+    float s3 = sens3.readNRVoltage();
+    float s4 = sens4.readNRVoltage();
+    float s5 = sens5.readNRVoltage();
+    float sum = s1+s2+s3+s4+s5;
+    float sumAvg = sum/5;
+
+
+    //check to see if a stop needs to occur
+
+    if(s1 < 0.3f &&
+       s2 < 0.3f &&
+       s3 < 0.3f &&
+       s4 < 0.3f &&
+       s5 < 0.35f 
+       ){        //idea to increase counts to x amount and if reached then stop the buggy
+
+        stopCountCheck += 1;
+        if (stopCountCheck == 200){
+            stop_motors();
+            state = startUp;
+            return;
+        }
+        }
+    else {
+        stopCountCheck = 0;
+    }
+
+
+    //float error_vel = speed - leftEncoder.velocityRead();
+    float error_pos;
+
+    
+    if(sum >0.5f){
+        error_pos = ((2.0f*s1) + (1.0f*s2) + (0.0f*s3) + (-1.0f*s4) + (-2.0f*s5)) / (sum);
+    
+    }else{
+        error_pos = 0;
+    }
+    float correction = Kp*error_pos; //this is for the proportional of the position.
+
+    derror_pos = error_pos - preverror_pos;
+    float d_pos = derror_pos/controlDt;
+
+    float steering = correction + Kd*d_pos;
+    if (steering > maxSteering){
+        steering = maxSteering;
+    }
+    else if (steering < -maxSteering) {
+        steering = -maxSteering;
+    }
+
+    ltarget_vel = 1.0f + steering; //slow the left
+    rtarget_vel = 1.0f - steering; //make right faster
+
+    error_vel_left = ltarget_vel - leftEncoder.velocityRead();
+    error_vel_right = rtarget_vel - rightEncoder.velocityRead();
+
+    //now implement PI for the velocity.
+    integral_left += error_vel_left * controlDt;
+    integral_right += error_vel_right * controlDt;
+
+    if(integral_left > 1.0f) integral_left = 1.0f;
+    if(integral_left < -1.0f) integral_left = -1.0f;
+
+    if(integral_right > 1.0f) integral_right = 1.0f;
+    if(integral_right < -1.0f) integral_right = -1.0f;
+
+    float leftControl = Kp_vel * error_vel_left + Ki_vel * integral_left;
+    float rightControl = Kp_vel * error_vel_right + Ki_vel * integral_right;
+
+    float pwmLeft_val = basePwm - leftControl;
+    float pwmRight_val = basePwm - rightControl;
+
+    if(pwmLeft_val > maxPwm) pwmLeft_val = maxPwm; //for clamping the speed between certain values.
+    if(pwmLeft_val < minPwm) pwmLeft_val = minPwm;
+
+    if(pwmRight_val > maxPwm) pwmRight_val = maxPwm;
+    if(pwmRight_val < minPwm) pwmRight_val = minPwm;
+
+    pwmLeft.write(pwmLeft_val);
+    pwmRight.write(pwmRight_val);
+    enable = 1;
+
+    //pwmLeft.write(pwmValue);
+    preverror_pos = error_pos;
+
+}
+
+
+// main() runs in its own thread in the OS
+int main()
+{
+
+
+    //encoderCount leftEncoder(PB_9);
+    //encoderCount rightEncoder(PB_8);
+ 
+    rightPol = 0;
+    leftPol = 0;
+    enable = 0;
+    state = startUp;
+    lastState = encoderRead;
+
+    hm10.baud(9600);        //sets up baud rate
+    hm10.attach(&bluetoothIRS, SerialBase::RxIrq);  //sets up state change IRS
+
+    //sensor variable declarations
+    
+    //imu
+    mpu.setSleepMode(false);
+    Timer imuTimer;
+
+
+    while (true) {
+    //main state code insert here
+
+        if(do180Turn == true){
+
+            yaw = 0.0f;                               
+
+            directionRight = 1;
+            directionLeft = 0;
+            enable = 1;
+
+            imuTimer.start();
+            int printCount = 0;
+
+            while (!turnCheck180()){
+
+
+                pwmLeft.write(0.6f);           
+                pwmRight.write(0.6f);
+
+
+                float data[3];          //updateYaw()
+                mpu.getGyro(data); 
+                zGyro = data[2];    //converts value from rad/s  
+                yaw += (zGyro * 0.01f);
+
+                wait_ms(10);
+
+            }
+            stop_motors();
+            do180Turn = false;
+            }
+
+
+        switch (state) {
+            case startUp:
+                if (state != lastState){
+                    enable = 0;
+                    pwmRight.write(1.0f);       //turns them off
+                    pwmLeft.write(1.0f);
+                    lcd.cls();
+                    lcd.locate(0,0);
+                    lcd.printf("Start Screen");
+                    
+                }
+                lastState = startUp;
+                break;
+
+            
+            case preControl:
+                if(state != lastState){
+                    lcd.cls();
+                    lcd.locate(0,0);
+                    lcd.printf("Pre Control State");
+                    pwmRight.write(0.62f);
+                    pwmLeft.write(0.62f);
+                }
+                lastState = preControl;
+                break;
+            
+            case controlState:
+                controller();
+                lastState = controlState;
+
+                break;
+
+            }
+        }
+
+
+    }
