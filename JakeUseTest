@@ -320,7 +320,7 @@ void bluetoothIRS(){
 float rampCompensationFind(){
     float angleData[3];
     mpu.getAcceleroAngle(angleData);
-    float pitchAngle = angleData[0];    //positive is driving up ramp
+    float pitchAngle = angleData[1];    //positive is driving up ramp
     const float pitchDeadzone = 3.0f;
     const float gainPerDegree = 0.01f;  // can be tuned to increase
 
