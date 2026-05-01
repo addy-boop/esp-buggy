@@ -23,7 +23,7 @@ public:
             countTimer.reset();
             countTimer.start();
         };
-        if(count == 100){              //change this to less to help reduce delay, increasing -> more stable but more delay
+        if(count == 150){
             countTimer.stop();
             rotationTime = (countTimer.read());
             count = 0;
@@ -33,10 +33,6 @@ public:
 
     
     float velocityRead(){
-        if(countTimer.read()>0.2f){
-            velocity = 0.0f;
-            rotationTime = 0.0f;
-        }
         if(rotationTime <= 0.0001f){
             return velocity;
         }
@@ -126,13 +122,13 @@ encoderCount rightEncoder(PC_8);
 float speed = 0.5;
 int k = 5;
 float new_vel;
-float Ki = 0.0f;          // start small!
+float Ki = 0.1f;          // start small!
 float integral = 0.0f;
 float dt = 0.01f;
 float derror_pos;
 float preverror_pos;
-float Kd = 0.0f;
-float Kp = 3.0f;
+float Kd = 0.000f;
+float Kp = 3.6f;
 float pwmRight_val;
 float ltarget_vel;
 float rtarget_vel;
@@ -140,7 +136,7 @@ float integral_left;
 float integral_right;
 float error_vel_left;
 float error_vel_right;
-float Kp_vel = 0.1;
+float Kp_vel = 0.4;
 float Ki_vel = 0.05;
 float lastS1 = 0.0f;
 float lastS2 = 0.0f;
@@ -175,6 +171,7 @@ MPU6050 mpu(PB_9,PB_8);
 volatile float yaw = 0.0f;
 volatile float zGyro = 0.0f;
 volatile float imuTime = 0.01f;
+volatile float rampCompensation = 0.0f;
 
 Ticker imuTicker;
 
@@ -190,7 +187,7 @@ int stopCountCheck = 0;
 
 
 bool turnCheck180(){
-    return (yaw >= 71.5 || yaw <= -71.5f);       //can change tolerance through testing
+    return (yaw >= 69.5 || yaw <= -69.5f);       //can change tolerance through testing
 }
 
 
@@ -320,14 +317,29 @@ void bluetoothIRS(){
     sensors sens5(PC_1);
     sensors backSens(PC_0);
 
+float rampCompensationFind(){
+    float angleData[3];
+    mpu.getAcceleroAngle(angleData);
+    float pitchAngle = angleData[0];    //positive is driving up ramp
+    const float pitchDeadzone = 3.0f;
+    const float gainPerDegree = 0.01f;  // can be tuned to increase
+
+    if(pitchAngle > pitchDeadzone){
+        return gainPerDegree * (pitchAngle - pitchDeadzone);
+    }else if(pitchAngle < -pitchDeadzone){
+        return gainPerDegree * (pitchAngle + pitchDeadzone);
+    }
+    return 0.0f;
+
+    }
+
 void controller () {
-    pwmLeft.period(0.0002f);
-    pwmRight.period(0.0002f);
     const float basePwm = 0.7f;
-    const float minPwm = 0.25f;
-    const float maxPwm = 0.9f;
-    const float maxSteering = 0.39f;
-    const float maxIntergral = 0.4f;
+    const float minPwm = 0.1f;
+    const float maxPwm = 0.95f;
+    const float maxSteering = 0.95f;
+    const float integralMax = 1.0f;
+    const float integralMin = -1.0f;
 
     directionLeft = 1;
     directionRight = 1;
@@ -351,7 +363,7 @@ void controller () {
 
     group1Enable.write(1);
     group2Enable.write(0);
-    wait_us(100);           //can decrease this to again decrease delay need to test
+    wait_us(200);
     sens1.readOnVoltage();
     sens2.readOffVoltage();
     sens3.readOnVoltage();
@@ -361,7 +373,7 @@ void controller () {
     //group 2
     group1Enable.write(0);
     group2Enable.write(1);
-    wait_us(100);
+    wait_us(200);
     sens1.readOffVoltage();
     sens2.readOnVoltage();
     sens3.readOffVoltage();
@@ -379,18 +391,17 @@ void controller () {
 
     //check to see if a stop needs to occur
 
-    if(s1 < 0.15f &&
-       s2 < 0.15f &&
-       s3 < 0.15f &&
-       s4 < 0.15f &&
-       s5 < 0.15f 
+    if(s1 < 0.3f &&
+       s2 < 0.3f &&
+       s3 < 0.3f &&
+       s4 < 0.3f &&
+       s5 < 0.35f 
        ){        //idea to increase counts to x amount and if reached then stop the buggy
 
         stopCountCheck += 1;
-        if (stopCountCheck == 450){
+        if (stopCountCheck == 200){
             stop_motors();
             state = startUp;
-            stopCountCheck = 0;
             return;
         }
         }
@@ -403,11 +414,11 @@ void controller () {
     float error_pos;
 
     
-    if(sum >0.3f){
+    if(sum >0.5f){
         error_pos = ((2.0f*s1) + (1.0f*s2) + (0.0f*s3) + (-1.0f*s4) + (-2.0f*s5)) / (sum);
     
     }else{
-        error_pos = preverror_pos;
+        error_pos = 0;
     }
     float correction = Kp*error_pos; //this is for the proportional of the position.
 
@@ -422,8 +433,8 @@ void controller () {
         steering = -maxSteering;
     }
 
-    ltarget_vel = 0.4f - steering; //slow the left
-    rtarget_vel = 0.4f + steering; //make right faster
+    ltarget_vel = 1.0f + steering; //slow the left
+    rtarget_vel = 1.0f - steering; //make right faster
 
     error_vel_left = ltarget_vel - leftEncoder.velocityRead();
     error_vel_right = rtarget_vel - rightEncoder.velocityRead();
@@ -432,17 +443,19 @@ void controller () {
     integral_left += error_vel_left * controlDt;
     integral_right += error_vel_right * controlDt;
 
-    if(integral_left > maxIntergral) integral_left = maxIntergral;
-    if(integral_left < -maxIntergral) integral_left = -maxIntergral;
+    if(integral_left > integralMax) integral_left = integralMax;
+    if(integral_left < integralMin) integral_left = integralMin;
 
-    if(integral_right > maxIntergral) integral_right = maxIntergral;
-    if(integral_right < -maxIntergral) integral_right = -maxIntergral;
+    if(integral_right > integralMax) integral_right = integralMax;
+    if(integral_right < integralMin) integral_right = integralMin;
 
     float leftControl = Kp_vel * error_vel_left + Ki_vel * integral_left;
     float rightControl = Kp_vel * error_vel_right + Ki_vel * integral_right;
 
-    float pwmLeft_val = basePwm + leftControl;
-    float pwmRight_val = basePwm + rightControl;
+    rampCompensation  = rampCompensationFind();
+
+    float pwmLeft_val = basePwm - leftControl - rampCompensation;
+    float pwmRight_val = basePwm - rightControl - rampCompensation;
 
     if(pwmLeft_val > maxPwm) pwmLeft_val = maxPwm; //for clamping the speed between certain values.
     if(pwmLeft_val < minPwm) pwmLeft_val = minPwm;
