@@ -149,6 +149,8 @@ volatile int sensorConstant = 0;
 volatile int group1Constant = 0;
 volatile int group2Constant = 1;
 
+Serial pc(USBTX, USBRX);
+
 //Bluetooth Variables
 Serial hm10(PA_11,PA_12);
 char s;
@@ -333,6 +335,22 @@ float rampCompensationFind(){
 
     }
 
+void printIMU() {
+    float gyro[3];
+    float angle[3];
+
+    mpu.getGyro(gyro);
+    mpu.getAcceleroAngle(angle);
+
+    pc.printf(
+        "Pitch: %.2f  Roll: %.2f  zGyro: %.2f  Yaw: %.2f\r\n",
+        angle[0],
+        angle[1],
+        gyro[2],
+        yaw
+    );
+}
+
 void controller () {
     const float basePwm = 0.7f;
     const float minPwm = 0.3f;
@@ -489,6 +507,7 @@ int main()
 
     hm10.baud(9600);        //sets up baud rate
     hm10.attach(&bluetoothIRS, SerialBase::RxIrq);  //sets up state change IRS
+    pc.baud(115200);
 
     //sensor variable declarations
     
@@ -499,6 +518,8 @@ int main()
 
     while (true) {
     //main state code insert here
+      printIMU();
+      wait_ms(100);
 
         if(do180Turn == true){
 
