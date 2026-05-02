@@ -1,0 +1,73 @@
+clear;
+clc;
+
+% Change this to your port
+port = "COM5";
+
+baud = 115200;
+
+% How long to record for, seconds
+recordTime = 20;
+
+% Open serial
+s = serialport(port, baud);
+
+% Match Arduino/mbed line ending
+configureTerminator(s, "LF");
+
+% Clear old serial data
+flush(s);
+
+voltage = [];
+velocity = [];
+time = [];
+
+disp("Recording started...");
+tic;
+
+while toc < recordTime
+    try
+        line = readline(s);          % reads one line: voltage,velocity
+        values = split(strtrim(line), ",");
+
+        if numel(values) == 2
+            v = str2double(values(1));
+            w = str2double(values(2));
+
+            if ~isnan(v) && ~isnan(w)
+                voltage(end+1,1) = v;
+                velocity(end+1,1) = w;
+                time(end+1,1) = toc;
+            end
+        end
+    catch
+        % Ignore bad/incomplete lines
+    end
+end
+
+disp("Recording finished.");
+
+% Close serial
+clear s;
+
+% Combine data
+data = table(time, voltage, velocity);
+
+% Save as MAT file
+save("motor_data.mat", "data", "time", "voltage", "velocity");
+
+% Save as CSV too
+writetable(data, "motor_data.csv");
+
+% Plot result
+figure;
+plot(time, voltage);
+xlabel("Time (s)");
+ylabel("Voltage (V)");
+title("Motor Input Voltage");
+
+figure;
+plot(time, velocity);
+xlabel("Time (s)");
+ylabel("Velocity (m/s)");
+title("Wheel Velocity");
