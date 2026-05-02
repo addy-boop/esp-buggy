@@ -1,0 +1,57 @@
+port = "COM6";
+baud = 9600;
+inactivity_seconds = 2.0;   % stop if no new line for this many seconds
+max_samples = 1e6;          % safety cap
+
+% Open serial port
+if exist('device','var') && isvalid(device)
+    clear device;
+end
+device = serialport(port, baud);
+configureTerminator(device, "LF");    % firmware uses '\n' terminator
+
+% Preallocate
+data = zeros(max_samples,2);
+tstamp = zeros(max_samples,1);
+n = 0;
+tic;
+last_read_time = tic;
+
+disp("Starting capture. Waiting for CSV lines 'voltage,velocity' ...");
+while true
+    % If data available, read a line (blocking up to Timeout)
+    if device.NumBytesAvailable > 0
+        try
+            line = readline(device);           % reads until LF terminator
+        catch
+            % read error: break
+            break;
+        end
+        % parse CSV: expect two numeric values
+        vals = sscanf(line, '%f,%f');
+        if numel(vals) == 2
+            n = n + 1;
+            data(n,1:2) = vals(:)';
+            tstamp(n) = toc;
+        end
+
+        last_read_time = tic;                % reset inactivity timer
+        if n >= max_samples
+            warning('Reached max_samples cap');
+            break;
+        end
+    else
+        % no bytes available: check inactivity
+        if toc(last_read_time) > inactivity_seconds && n>0
+            % assume stream ended
+            break;
+        end
+        pause(0.005); % small sleep to avoid busy loop
+    end
+end
+
+% Trim arrays to actual length
+data = data(1:n,:);
+tstamp = tstamp(1:n);
+
+save('motor_run.mat','data','tstamp');
