@@ -55,3 +55,8 @@ data = data(1:n,:);
 tstamp = tstamp(1:n);
 
 save('motor_run.mat','data','tstamp');
+disp("Saved motor_run.mat");
+plot(tstamp, data(:,1)); hold on;
+plot(tstamp, data(:,2));
+legend("Voltage","Velocity");
+grid on;
