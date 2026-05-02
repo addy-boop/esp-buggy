@@ -1,0 +1,201 @@
+#include "mbed.h"
+#include "C12832.h"
+
+C12832 lcd(D11,D13,D12,D7,D10);
+
+Serial pc(USBTX, USBRX);
+
+// Motor pins from your buggy
+PwmOut pwmRight(PB_7);
+PwmOut pwmLeft(PB_1);
+
+DigitalOut enable(PD_2);
+DigitalOut directionLeft(PB_14);
+DigitalOut directionRight(PC_12);
+DigitalOut leftPol(PB_15);
+DigitalOut rightPol(PC_10);
+
+// Use one button for 3-press sequence
+InterruptIn button(A2);
+
+// Encoder class from your code
+class encoderCount {
+private:
+    InterruptIn countInterrupt;
+    volatile int count;
+    volatile float rotationTime, velocity;
+    Timer countTimer;
+
+public:
+    encoderCount(PinName pin)
+        : countInterrupt(pin), count(0), rotationTime(0.0f), velocity(0.0f) {
+        countInterrupt.rise(callback(this, &encoderCount::increment));
+    }
+
+    void increment() {
+        count++;
+
+        if (count == 1) {
+            countTimer.reset();
+            countTimer.start();
+        }
+
+        if (count == 150) {
+            countTimer.stop();
+            rotationTime = countTimer.read();
+            count = 0;
+        }
+    }
+
+    float velocityRead() {
+        if (rotationTime <= 0.0001f) {
+            return velocity;
+        }
+
+        // wheel circumference / time for 150 counts
+        velocity = (3.14159f * 0.079f) / rotationTime;
+        return velocity;
+    }
+
+    void reset() {
+        count = 0;
+        rotationTime = 0.0f;
+        velocity = 0.0f;
+        countTimer.reset();
+    }
+};
+
+encoderCount leftEncoder(PC_6);
+encoderCount rightEncoder(PC_8);
+
+Ticker sampleTicker;
+
+volatile bool buttonFlag = false;
+int state = 0;
+
+// choose motor here
+// 0 = left motor
+// 1 = right motor
+int selectedMotor = 0;
+
+const float supplyVoltage = 5.0f;
+const float stepVoltage = 4.0f;
+const float stepDuty = stepVoltage / supplyVoltage;
+
+void buttonISR() {
+    buttonFlag = true;
+}
+
+void stopMotors() {
+    enable = 0;
+
+    // Your code uses 1.0 as stop when disabled
+    pwmLeft.write(1.0f);
+    pwmRight.write(1.0f);
+}
+
+void applyStep() {
+    enable = 1;
+
+    directionLeft = 1;
+    directionRight = 1;
+
+    if (selectedMotor == 0) {
+        pwmLeft.write(1 - stepDuty);
+        pwmRight.write(1.0f);
+    } else {
+        pwmRight.write(1 - stepDuty);
+        pwmLeft.write(1.0f);
+    }
+}
+
+void sampleAndSend() {
+    float duty;
+    float velocity;
+
+    if (selectedMotor == 0) {
+        duty = stepDuty;
+        velocity = leftEncoder.velocityRead();
+    } else {
+        duty = stepDuty;
+        velocity = rightEncoder.velocityRead();
+    }
+
+    float voltage;
+
+    if (state == 2) {
+        voltage = duty * supplyVoltage;
+    } else {
+        voltage = 0.0f;
+    }
+
+    pc.printf("%f,%f\n", voltage, velocity);
+}
+
+int main() {
+    pc.baud(115200);
+
+    pwmLeft.period(0.0002f);
+    pwmRight.period(0.0002f);
+
+    rightPol = 0;
+    leftPol = 0;
+
+    stopMotors();
+
+    button.rise(&buttonISR);
+
+    lcd.cls();
+    lcd.locate(0,0);
+    lcd.printf("Motor ID Test\n");
+    lcd.printf("Motor: LEFT\n");
+    lcd.printf("Press button");
+
+    while (true) {
+        if (buttonFlag) {
+            buttonFlag = false;
+
+            if (state == 0) {
+                // first press: start streaming
+                state = 1;
+
+                leftEncoder.reset();
+                rightEncoder.reset();
+
+                sampleTicker.attach(&sampleAndSend, 0.005f);
+
+                lcd.cls();
+                lcd.locate(0,0);
+                lcd.printf("Streaming...\n");
+                lcd.printf("Press for 4V step");
+            }
+            else if (state == 1) {
+                // second press: apply 4V step
+                state = 2;
+
+                applyStep();
+
+                lcd.cls();
+                lcd.locate(0,0);
+                lcd.printf("4V step applied\n");
+                lcd.printf("Press to stop");
+            }
+            else if (state == 2) {
+                // third press: stop
+                state = 0;
+
+                stopMotors();
+                sampleTicker.detach();
+
+                lcd.cls();
+                lcd.locate(0,0);
+                lcd.printf("Stopped\n");
+                lcd.printf("Data complete");
+            }
+
+            wait_ms(200);
+        }
+
+        wait_ms(20);
+    }
+}
