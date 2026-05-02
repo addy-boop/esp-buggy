@@ -1,0 +1,144 @@
+% motor_identification.m
+
+clear; close all; clc;
+
+%% User parameters
+Motor_Period = 0.005;   % sampling period used on the board (seconds)
+orders = [1 2];         % try 1st and 2nd order only
+pre_step_seconds = 0.5; % include this much data before detected step
+fit_tolerance = 0.5;    % prefer lower order if within this percent of best fit
+
+%% Load data (expects motor_run.mat with variable 'data' columns [voltage, velocity])
+if ~exist('motor_run.mat','file')
+    error('motor_run.mat not found in current folder.');
+end
+S = load('motor_run.mat');
+if ~isfield(S,'data')
+    error('motor_run.mat must contain variable ''data'' with columns [voltage,velocity].');
+end
+raw = S.data;
+if size(raw,2) < 2
+    error('data must have two columns: [voltage, velocity].');
+end
+voltage = raw(:,1);
+velocity = raw(:,2);
+N = length(voltage);
+
+%% Remap time using Motor_Period
+t = (0:N-1)' * Motor_Period;
+
+%% Basic cleaning (remove NaNs)
+valid = ~isnan(voltage) & ~isnan(velocity);
+voltage = voltage(valid);
+velocity = velocity(valid);
+t = t(valid);
+N = length(voltage);
+
+%% Detect step start
+dv = abs([0; diff(voltage)]);
+v_range = max(voltage) - min(voltage);
+if v_range == 0
+    error('Voltage is constant; no step detected.');
+end
+th = 0.05 * v_range; % 5% threshold
+step_idx = find(dv > th, 1, 'first');
+if isempty(step_idx)
+    step_idx = 1;
+end
+
+% Identification window: include pre_step_seconds before step
+pre_samples = round(pre_step_seconds / Motor_Period);
+start_idx = max(1, step_idx - pre_samples);
+end_idx = N;
+
+t_id = t(start_idx:end_idx);
+u_id = voltage(start_idx:end_idx);
+y_id = velocity(start_idx:end_idx);
+
+% Align time to zero for plotting convenience
+t_id = t_id - t_id(1);
+
+%% Create iddata with known sampling period
+data_id = iddata(y_id, u_id, Motor_Period);
+data_id.TimeUnit = 'seconds';
+
+%% Estimate discrete state-space models
+models = cell(length(orders),1);
+fit_vals = nan(length(orders),1);
+
+for k = 1:length(orders)
+    n = orders(k);
+    try
+        models{k} = ssest(data_id, n);
+        y_sim = sim(models{k}, u_id);
+        fit_vals(k) = 100*(1 - norm(y_id - y_sim)/norm(y_id - mean(y_id)));
+    catch ME
+        models{k} = [];
+        fit_vals(k) = NaN;
+        warning('ssest failed for order %d: %s', n, ME.message);
+    end
+end
+
+% Select best model by fit; prefer lower order if fits within fit_tolerance %
+[best_fit, idx_max] = max(fit_vals);
+if isnan(best_fit)
+    error('ssest failed for both orders.');
+end
+best_idx = idx_max;
+best_model = models{best_idx};
+best_order = orders(best_idx);
+
+%% Find transfer function of state space model
+best_tf_c = tf(best_model);
+disp(best_tf_c);
+best_tf_d = c2d(best_model, Motor_Period, 'zoh');
+
+%% Compute metrics: DC gain, poles, time constants, damping
+dc_gain = dcgain(best_tf_c);
+poles_c = pole(best_tf_c);
+tau = NaN; % time constant
+wn = NaN;  % natural frequency
+zeta = NaN; % damping ratio
+
+if best_order == 1
+    % single dominant pole
+    if ~isempty(poles_c)
+        p = poles_c(1);
+        tau = -1/real(p);
+    end
+elseif best_order == 2
+    % compute natural frequency and damping ratio
+    [wn_vec, zeta_vec] = damp(best_tf_c);
+    wn = wn_vec(1);
+    zeta = zeta_vec(1);
+end
+
+%% Validation plots
+figure(1); clf;
+y_sim = sim(best_tf_d, u_id);
+subplot(2,1,1);
+plot(t_id, y_id, 'k', 'DisplayName','Measured'); hold on;
+plot(t_id, y_sim, 'r--', 'DisplayName','Simulated');
+xlabel('Time (s)'); ylabel('Velocity'); legend;
+title(sprintf('ssest order %d; fit = %.2f%%', best_order, best_fit));
+
+subplot(2,1,2);
+resid = y_id - y_sim;
+plot(t_id, resid);
+xlabel('Time (s)'); ylabel('Residual');
+title('Residuals (measured - simulated)');
+
+figure(2); clf;
+bode(best_tf_c); grid on; title('Bode of continuous TF');
+
+figure(3); clf;
+step(best_tf_c); title('Step response (continuous TF)');
+
+%% Save results to .mat
+if exist('motor_control_variables.mat','file')
+    storedStructure = load('motor_control_variables.mat');
+end
+MTs = Motor_Period;
+Noise = 5e-5; % Noise Power
+Data_Struct = struct('MTs', Motor_Period, 'Noise', Noise);
+save('motor_control_variables.mat', '-struct', 'Data_Struct');
