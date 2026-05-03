@@ -3,7 +3,7 @@
 
 C12832 lcd(D11,D13,D12,D7,D10);
 
-Serial pc(USBTX, USBRX);
+Serial pc(USBTX, USBRX,115200);
 
 // Motor pins from your buggy
 PwmOut pwmRight(PB_7);
