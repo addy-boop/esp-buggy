@@ -1,4 +1,4 @@
-port = "COM6";
+port = "COM5";
 baud = 115200;
 inactivity_seconds = 2.0;   % stop if no new line for this many seconds
 max_samples = 1e6;          % safety cap
