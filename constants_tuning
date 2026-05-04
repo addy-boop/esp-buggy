@@ -143,10 +143,10 @@ float lastS2 = 0.0f;
 float lastS3 = 0.0f;
 float lastS4 = 0.0f;
 float lastS5 = 0.0f;
-float Kp_vel_left = 0;
-float Ki_vel_left = 3.5443;
-float Kp_vel_right = 0.69851;
-float Ki_vel_right = 8.2297;
+float Kp_vel_left = 0.35;
+float Ki_vel_left = 5.5;
+float Kp_vel_right = 0.35;
+float Ki_vel_right = 5.5;
 
 //Sensor variables
 volatile int sensorConstant = 0;
