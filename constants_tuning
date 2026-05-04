@@ -143,6 +143,10 @@ float lastS2 = 0.0f;
 float lastS3 = 0.0f;
 float lastS4 = 0.0f;
 float lastS5 = 0.0f;
+Kp_vel_left = 1.2915;
+Ki_vel_left = 10.26;
+Kp_vel_right = 2.913;
+Ki_vel_right = 18.67;
 
 //Sensor variables
 volatile int sensorConstant = 0;
@@ -452,8 +456,8 @@ void controller () {
     if(integral_right > integralMax) integral_right = integralMax;
     if(integral_right < integralMin) integral_right = integralMin;
 
-    float leftControl = Kp_vel * error_vel_left + Ki_vel * integral_left;
-    float rightControl = Kp_vel * error_vel_right + Ki_vel * integral_right;
+    float leftControl = Kp_vel_left * error_vel_left + Ki_vel_left * integral_left;
+    float rightControl = Kp_vel_right * error_vel_right + Ki_vel_right * integral_right;
 
     rampCompensation  = rampCompensationFind();
 
