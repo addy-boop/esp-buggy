@@ -324,7 +324,7 @@ float rampCompensationFind(){
     lcd.locate(0,0);
     float pitchAngle = -angleData[2];    //negative angleData[2] is driving up ramp
     const float pitchDeadzone = 7.5f;
-    const float gainPerDegree = 0.06f;  // can be tuned to increase
+    const float gainPerDegree = 0.01f;  // can be tuned to increase
 
     if(pitchAngle > pitchDeadzone){
         return gainPerDegree * (pitchAngle - pitchDeadzone);
@@ -336,12 +336,13 @@ float rampCompensationFind(){
     }
 
 void controller () {
-    const float basePwm = 0.7f;
+    const float basePwm = 0.8f;
     const float minPwm = 0.1f;
     const float maxPwm = 0.95f;
     const float maxSteering = 0.95f;
     const float integralMax = 1.0f;
     const float integralMin = -1.0f;
+    const float velocityTarget = 0.6f;
 
     directionLeft = 1;
     directionRight = 1;
@@ -435,8 +436,8 @@ void controller () {
         steering = -maxSteering;
     }
 
-    ltarget_vel = 1.0f + steering; //slow the left
-    rtarget_vel = 1.0f - steering; //make right faster
+    ltarget_vel = velocityTarget + steering; //slow the left
+    rtarget_vel = velocityTarget - steering; //make right faster
 
     error_vel_left = ltarget_vel - leftEncoder.velocityRead();
     error_vel_right = rtarget_vel - rightEncoder.velocityRead();
@@ -573,10 +574,6 @@ int main()
                     rampCompensationFind();
                     rampControlCheck = 0;
                 }
-                lcd.cls();
-                lcd.locate(0,0);
-                lcd.printf("%.2f",pwmRight_val);
-
                 break;
 
             }
