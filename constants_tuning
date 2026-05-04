@@ -136,17 +136,13 @@ float integral_left;
 float integral_right;
 float error_vel_left;
 float error_vel_right;
-float Kp_vel = 1.29;
-float Ki_vel = 10.26;
+float Kp_vel = 0.35;
+float Ki_vel = 5.5;
 float lastS1 = 0.0f;
 float lastS2 = 0.0f;
 float lastS3 = 0.0f;
 float lastS4 = 0.0f;
 float lastS5 = 0.0f;
-float Kp_vel_left = 0.35;
-float Ki_vel_left = 5.5;
-float Kp_vel_right = 0.35;
-float Ki_vel_right = 5.5;
 
 //Sensor variables
 volatile int sensorConstant = 0;
@@ -175,7 +171,6 @@ MPU6050 mpu(PB_9,PB_8);
 volatile float yaw = 0.0f;
 volatile float zGyro = 0.0f;
 volatile float imuTime = 0.01f;
-volatile float rampCompensation = 0.0f;
 
 Ticker imuTicker;
 
@@ -321,32 +316,11 @@ void bluetoothIRS(){
     sensors sens5(PC_1);
     sensors backSens(PC_0);
 
-float rampCompensationFind(){
-    float angleData[3];
-    mpu.getAcceleroAngle(angleData);
-    lcd.cls();
-    lcd.locate(0,0);
-    float pitchAngle = -angleData[2];    //negative angleData[2] is driving up ramp
-    const float pitchDeadzone = 7.5f;
-    const float gainPerDegree = 0.01f;  // can be tuned to increase
-
-    if(pitchAngle > pitchDeadzone){
-        return gainPerDegree * (pitchAngle - pitchDeadzone);
-    }else if(pitchAngle < -pitchDeadzone){
-        return gainPerDegree * (pitchAngle + pitchDeadzone);
-    }
-    return 0.0f;
-
-    }
-
 void controller () {
-    const float basePwm = 0.8f;
-    const float minPwm = 0.1f;
+    const float basePwm = 0.7f;
+    const float minPwm = 0.3f;
     const float maxPwm = 0.95f;
     const float maxSteering = 0.95f;
-    const float integralMax = 1.0f;
-    const float integralMin = -1.0f;
-    const float velocityTarget = 0.6f;
 
     directionLeft = 1;
     directionRight = 1;
@@ -398,15 +372,15 @@ void controller () {
 
     //check to see if a stop needs to occur
 
-    if(s1 < 0.3f &&
-       s2 < 0.3f &&
-       s3 < 0.3f &&
-       s4 < 0.3f &&
-       s5 < 0.35f 
+    if(s1 < 0.2f &&
+       s2 < 0.2f &&
+       s3 < 0.2f &&
+       s4 < 0.2f &&
+       s5 < 0.3f 
        ){        //idea to increase counts to x amount and if reached then stop the buggy
 
         stopCountCheck += 1;
-        if (stopCountCheck == 200){
+        if (stopCountCheck == 100){
             stop_motors();
             state = startUp;
             return;
@@ -440,8 +414,8 @@ void controller () {
         steering = -maxSteering;
     }
 
-    ltarget_vel = velocityTarget + steering; //slow the left
-    rtarget_vel = velocityTarget - steering; //make right faster
+    ltarget_vel = 1.0f + steering; //slow the left
+    rtarget_vel = 1.0f - steering; //make right faster
 
     error_vel_left = ltarget_vel - leftEncoder.velocityRead();
     error_vel_right = rtarget_vel - rightEncoder.velocityRead();
@@ -450,19 +424,17 @@ void controller () {
     integral_left += error_vel_left * controlDt;
     integral_right += error_vel_right * controlDt;
 
-    if(integral_left > integralMax) integral_left = integralMax;
-    if(integral_left < integralMin) integral_left = integralMin;
+    if(integral_left > 1.0f) integral_left = 1.0f;
+    if(integral_left < -1.0f) integral_left = -1.0f;
 
-    if(integral_right > integralMax) integral_right = integralMax;
-    if(integral_right < integralMin) integral_right = integralMin;
+    if(integral_right > 1.0f) integral_right = 1.0f;
+    if(integral_right < -1.0f) integral_right = -1.0f;
 
-    float leftControl = Kp_vel_left * error_vel_left + Ki_vel_left * integral_left;
-    float rightControl = Kp_vel_right * error_vel_right + Ki_vel_right * integral_right;
+    float leftControl = Kp_vel * error_vel_left + Ki_vel * integral_left;
+    float rightControl = Kp_vel * error_vel_right + Ki_vel * integral_right;
 
-    rampCompensation  = rampCompensationFind();
-
-    float pwmLeft_val = basePwm - leftControl - rampCompensation;
-    float pwmRight_val = basePwm - rightControl - rampCompensation;
+    float pwmLeft_val = basePwm - leftControl;
+    float pwmRight_val = basePwm - rightControl;
 
     if(pwmLeft_val > maxPwm) pwmLeft_val = maxPwm; //for clamping the speed between certain values.
     if(pwmLeft_val < minPwm) pwmLeft_val = minPwm;
@@ -475,6 +447,7 @@ void controller () {
     enable = 1;
 
     //pwmLeft.write(pwmValue);
+    preverror_pos = error_pos;
 
 }
 
@@ -493,7 +466,6 @@ int main()
     state = startUp;
     lastState = encoderRead;
 
-
     hm10.baud(9600);        //sets up baud rate
     hm10.attach(&bluetoothIRS, SerialBase::RxIrq);  //sets up state change IRS
 
@@ -502,7 +474,6 @@ int main()
     //imu
     mpu.setSleepMode(false);
     Timer imuTimer;
-    int rampControlCheck =0;
 
 
     while (true) {
@@ -568,11 +539,7 @@ int main()
             case controlState:
                 controller();
                 lastState = controlState;
-                rampControlCheck++;
-                if(rampControlCheck == 20){
-                    rampCompensationFind();
-                    rampControlCheck = 0;
-                }
+
                 break;
 
             }
