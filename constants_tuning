@@ -143,10 +143,10 @@ float lastS2 = 0.0f;
 float lastS3 = 0.0f;
 float lastS4 = 0.0f;
 float lastS5 = 0.0f;
-Kp_vel_left = 1.2915;
-Ki_vel_left = 10.26;
-Kp_vel_right = 2.913;
-Ki_vel_right = 18.67;
+float Kp_vel_left = 1.2915;
+float Ki_vel_left = 10.26;
+float Kp_vel_right = 2.913;
+float Ki_vel_right = 18.67;
 
 //Sensor variables
 volatile int sensorConstant = 0;
@@ -475,11 +475,6 @@ void controller () {
     enable = 1;
 
     //pwmLeft.write(pwmValue);
-    preverror_pos = error_pos;
-    lcd.cls();
-    lcd.locate(0,0);
-    lcd.printf("%.2f",rampCompensation);
-    wait_ms(5);
 
 }
 
