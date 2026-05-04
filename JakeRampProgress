@@ -36,6 +36,9 @@ public:
         if(rotationTime <= 0.0001f){
             return velocity;
         }
+        if(countTimer.read() > rotationTime * 2.0f){
+            return 0.0f;
+        }
         velocity = ((3.14159f * (79.0f/1000.0f))/rotationTime);
         return velocity;
     }
@@ -128,7 +131,7 @@ float dt = 0.01f;
 float derror_pos;
 float preverror_pos;
 float Kd = 0.000f;
-float Kp = 3.6f;
+float Kp = 4.0f;        //was 3.6 on godSave
 float pwmRight_val;
 float ltarget_vel;
 float rtarget_vel;
@@ -137,12 +140,13 @@ float integral_right;
 float error_vel_left;
 float error_vel_right;
 float Kp_vel = 0.4;
-float Ki_vel = 0.05;
+float Ki_vel = 0.15;
 float lastS1 = 0.0f;
 float lastS2 = 0.0f;
 float lastS3 = 0.0f;
 float lastS4 = 0.0f;
 float lastS5 = 0.0f;
+bool controllerFirstRun = true;
 
 //Sensor variables
 volatile int sensorConstant = 0;
@@ -242,26 +246,7 @@ void turn_right_90() {
     stop_motors();
 }
 
-void turn_left_90() {
 
-    leftEncoder.countreset();
-    rightEncoder.countreset();
-
-    directionRight = 1;  // move forwards
-    directionLeft = 0;
-
-    pwmLeft.period(0.0002f);
-    pwmRight.period(0.0002f);
-
-    while (leftEncoder.countRead() < left_turn_90_counts) {
-      pwmLeft.write(0.81f);
-      pwmRight.write(0.8f);
-      enable = 1;
-     }
-
-    stop_motors();
-
-}
 
 
 //bluetooth state change function
@@ -320,11 +305,9 @@ void bluetoothIRS(){
 float rampCompensationFind(){
     float angleData[3];
     mpu.getAcceleroAngle(angleData);
-    lcd.cls();
-    lcd.locate(0,0);
     float pitchAngle = -angleData[2];    //negative angleData[2] is driving up ramp
-    const float pitchDeadzone = 7.5f;
-    const float gainPerDegree = 0.01f;  // can be tuned to increase
+    const float pitchDeadzone = 6.5f;
+    const float gainPerDegree = 0.1f;  // can be tuned to increase
 
     if(pitchAngle > pitchDeadzone){
         return gainPerDegree * (pitchAngle - pitchDeadzone);
@@ -336,22 +319,23 @@ float rampCompensationFind(){
     }
 
 void controller () {
-    const float basePwm = 0.8f;
+    const float basePwm = 0.55f;
     const float minPwm = 0.1f;
     const float maxPwm = 0.95f;
-    const float maxSteering = 0.95f;
-    const float integralMax = 1.0f;
-    const float integralMin = -1.0f;
-    const float velocityTarget = 0.6f;
+    const float maxSteering = 0.9f;
+    const float integralMax = 0.75f;
+    const float integralMin = -0.5f;
+    const float velocityTarget = 1.2f;
+    const float smoothingValue = 0.3f;
 
     directionLeft = 1;
     directionRight = 1;
 
     static Timer controlTimer;
-    static bool firstRun = true;
-    if(firstRun){
+
+    if(controllerFirstRun){
         controlTimer.start();
-        firstRun = false;
+        controllerFirstRun = false;
         return;
     }
     float controlDt = controlTimer.read();
@@ -388,13 +372,14 @@ void controller () {
     float s3 = sens3.readNRVoltage();
     float s4 = sens4.readNRVoltage();
     float s5 = sens5.readNRVoltage();
+
     float sum = s1+s2+s3+s4+s5;
     float sumAvg = sum/5;
 
 
     //check to see if a stop needs to occur
 
-    if(s1 < 0.3f &&
+   /* if(s1 < 0.3f &&
        s2 < 0.3f &&
        s3 < 0.3f &&
        s4 < 0.3f &&
@@ -410,7 +395,7 @@ void controller () {
         }
     else {
         stopCountCheck = 0;
-    }
+    }*/
 
 
     //float error_vel = speed - leftEncoder.velocityRead();
@@ -439,6 +424,9 @@ void controller () {
     ltarget_vel = velocityTarget + steering; //slow the left
     rtarget_vel = velocityTarget - steering; //make right faster
 
+    if(ltarget_vel < 0.1f) ltarget_vel = 0.1f;
+    if(rtarget_vel < 0.1f) rtarget_vel = 0.1f;
+
     error_vel_left = ltarget_vel - leftEncoder.velocityRead();
     error_vel_right = rtarget_vel - rightEncoder.velocityRead();
 
@@ -455,7 +443,7 @@ void controller () {
     float leftControl = Kp_vel * error_vel_left + Ki_vel * integral_left;
     float rightControl = Kp_vel * error_vel_right + Ki_vel * integral_right;
 
-    rampCompensation  = rampCompensationFind();
+ //   rampCompensation  = rampCompensationFind();
 
     float pwmLeft_val = basePwm - leftControl - rampCompensation;
     float pwmRight_val = basePwm - rightControl - rampCompensation;
@@ -470,12 +458,9 @@ void controller () {
     pwmRight.write(pwmRight_val);
     enable = 1;
 
-    //pwmLeft.write(pwmValue);
     preverror_pos = error_pos;
-    lcd.cls();
-    lcd.locate(0,0);
-    lcd.printf("%.2f",rampCompensation);
-    wait_ms(5);
+
+    //pwmLeft.write(pwmValue);
 
 }
 
@@ -499,6 +484,11 @@ int main()
     hm10.attach(&bluetoothIRS, SerialBase::RxIrq);  //sets up state change IRS
 
     //sensor variable declarations
+
+    integral_left = 0.0f;
+    integral_right = 0.0f;
+    preverror_pos = 0.0f;
+    controllerFirstRun = true;
     
     //imu
     mpu.setSleepMode(false);
@@ -549,6 +539,11 @@ int main()
                     lcd.cls();
                     lcd.locate(0,0);
                     lcd.printf("Start Screen");
+                    integral_left = 0.0f;
+                    integral_right = 0.0f;
+                    preverror_pos = 0.0f;
+                    controllerFirstRun = true;
+                    stopCountCheck = 0;
                     
                 }
                 lastState = startUp;
@@ -570,7 +565,7 @@ int main()
                 controller();
                 lastState = controlState;
                 rampControlCheck++;
-                if(rampControlCheck == 20){
+                if(rampControlCheck == 30){
                     rampCompensationFind();
                     rampControlCheck = 0;
                 }
