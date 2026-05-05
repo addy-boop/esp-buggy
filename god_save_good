@@ -155,7 +155,7 @@ Serial hm10(PA_11,PA_12);
 char s;
 DigitalOut LED(D5);
 
-typedef enum{startUp, encoderRead, sensorReading, preControl, controlState}programState;
+typedef enum{startUp, preControl,turnaroundState, controlState}programState;
 volatile programState state;
 volatile programState lastState;
 
@@ -536,15 +536,24 @@ int main()
                 }
                 lastState = preControl;
                 break;
+
+            case turnaroundState:
+               if(state != lastState){
+                   if(state != lastState) {
+                    do180Turn = true;                          //need to test if works
+                   }
+            lastState = turnaroundState;
+            break;
             
             case controlState:
                 controller();
                 lastState = controlState;
-
                 break;
 
             }
         }
 
+
+    }
 
     }
