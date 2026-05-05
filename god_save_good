@@ -268,46 +268,18 @@ void turn_left_90() {
 
 void bluetoothIRS(){
     if(hm10.readable()){
-        s = hm10.getc(); // s =hm10.getc();
-        if (s == 'T'){    
-            do180Turn = true;                          //need to test if works
-        /*    yaw = 0.0f;                             //if not will set a flag do180Turn = true;  
-            imuTicker.attach(&updateYaw, imuTime);  //and an if in main loop
+        s = hm10.getc();
 
-            directionRight = 0;
-            directionLeft = 1;
-            enable = 1;
-
-            while (!turnCheck180()){
-                pwmLeft.write(0.81f);           
-                pwmRight.write(0.81f);
+        if(s == 'T'){
+            if(state == startUp){
+                state = preControl;
             }
-            stop_motors();
-            imuTicker.detach(); */
         }
-        if (s == 'B'){
+
+        if(s == 'B'){
             LED = !LED;
         }
-        if(s == 'A'){
-            switch(state){
-                case(startUp):
-                    state = preControl;
-                break;
-                case(encoderRead):
-                    state = sensorReading;
-                break;
-                case(sensorReading):
-                    state = preControl;
-                break;
-                case(preControl):
-                    state = controlState;
-                break;
-                case(controlState):
-                    state = startUp;
-                break;
-                }
-            }
-        }
+    }
 }
 
     sensors sens1(PC_5);        //named from left to right
